@@ -3,7 +3,7 @@
 **Docker 호스트 통합 보안 진단 도구** — "무엇이 위험한지"뿐 아니라 **"고치면 무엇이 깨지는지"까지** 알려줍니다.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-511%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-621%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
 ![CIS](https://img.shields.io/badge/CIS%20Docker%20Benchmark-v1.6.0-orange)
 
@@ -17,7 +17,7 @@ dockguard fix daemon --apply        # 백업 → 검증 → 적용 → 실패 �
 dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테이너 네트워크 격리를 한 번에 점검하고,
 각 취약점마다 **왜 위험한지 / 어떻게 고치는지 / 고치면 어떤 부작용이 있는지**를 한글로 설명하는 CLI 도구입니다.
 
-> **개발 현황** — Phase 3 완료: daemon.json 룰 10종 + 안전한 자동 수정, docker-compose 룰 12종. 네트워크 의존성 점검은 [로드맵](#로드맵) 참고.
+> **개발 현황** — Phase 4 완료: daemon.json 10종(+ 안전한 자동 수정) · docker-compose 12종 · **네트워크/서비스 의존성 4종**, 총 26개 룰. HTML 리포트 · 학습 기능은 [로드맵](#로드맵) 참고.
 
 ---
 
@@ -67,12 +67,13 @@ dockguard는 모든 권고에 이 **부작용(tradeoff)**을 붙이고, 서비�
 | 사고에서 얻은 교훈 | dockguard에 반영된 곳 |
 |--------------------|------------------------|
 | 보안 설정이 서비스 통신을 끊을 수 있다 | DAEMON-001(icc) 부작용 설명, 자동 수정 시 **강경고 + 이중 확인** |
-| 재부팅 후 네트워크 분리를 빨리 찾아야 한다 | NET-001 서비스 의존성 통신 검증 *(Phase 4)* |
+| 재부팅 후 네트워크 분리를 빨리 찾아야 한다 | **NET-001 서비스 의존성 통신 검증** — 공유 네트워크 · icc 차단 · 멈춘 컨테이너를 한 번에 |
+| 재시작 정책이 없으면 정전 후 컨테이너가 안 올라온다 | NET-001이 멈춘 대상의 `restart` 정책까지 확인해 원인과 복구 명령 제시 |
 | `compose down`은 익명 볼륨 데이터를 잃게 한다 | 재생성 안내를 `up -d --force-recreate`로 통일, named volume 권고 |
 | 서비스마다 비밀번호를 따로 적어 두면 한쪽만 바뀐다 | COMPOSE-005 평문 시크릿 점검 — 한 곳(.env / secrets)에서 관리하도록 안내 |
 | live-restore는 정전(호스트 재부팅)을 막아 주지 않는다 | DAEMON-004 부작용에 명시, `restart:` 정책 안내 |
 | 호스트 외부 IP로 컨테이너끼리 접속하면 불안정하다 | DAEMON-001/003 부작용에 서비스 이름 접속 권고 |
-| RabbitMQ 포트가 0.0.0.0에 열려 guest로 접속당했다 | NET-004 외부 노출 포트 점검 *(Phase 4)*, DAEMON-009의 UFW 우회 경고 |
+| RabbitMQ 포트가 0.0.0.0에 열려 guest로 접속당했다 | NET-004 민감 포트 외부 노출 점검, DAEMON-009의 UFW 우회 경고 |
 
 ---
 
@@ -86,7 +87,7 @@ dockguard를 만들기 전에 널리 쓰이는 도구들을 먼저 살펴봤습�
 | 주 용도 | CIS 벤치마크 전 항목 점검 | 이미지 취약점(CVE) · IaC 스캔 | Dockerfile 린트 | Docker 호스트 통합 진단 |
 | daemon.json 점검 | ✅ | — | — | ✅ |
 | docker-compose 파일 점검 | 실행 중 컨테이너 기준 | — | — | ✅ |
-| **서비스 간 통신 가능 여부 검증** | — | — | — | ✅ *(Phase 4)* |
+| **서비스 간 통신 가능 여부 검증** | — | — | — | ✅ |
 | **수정 시 부작용(tradeoff) 설명** | — | — | — | ✅ |
 | 안전한 자동 수정 (백업 · 검증 · 롤백) | — | — | — | ✅ |
 | 한글 보안 학습 콘텐츠 | — | — | — | ✅ |
@@ -107,9 +108,12 @@ cd dockguard
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 
-pip install -e .                     # 사용만 할 경우
+pip install -e .                     # 사용만 할 경우 (Docker 상태는 docker CLI로 수집)
+pip install -e ".[docker]"           # Docker SDK for Python도 함께 설치 (선택)
 pip install -e ".[dev]"              # 테스트까지 돌릴 경우
 ```
+
+> 네트워크 점검(NET-*)은 Docker 소켓에 접근해야 하므로 보통 `sudo`가 필요합니다. 권한이 없으면 크래시 없이 이유와 해결 방법을 알려주고 해당 점검만 건너뜁니다.
 
 설치하면 `dockguard` 명령이 등록됩니다. `python -m dockguard`로도 실행할 수 있습니다.
 
@@ -309,7 +313,69 @@ services:
 # RABBITMQ_PASSWORD=...
 ```
 
-### 5. 룰 목록 보기
+### 5. 서비스 의존성 검증 — 정전 후 "왜 연결이 안 되지?"를 즉시 찾기
+
+dockguard의 핵심 기능입니다. 서비스 간 통신 의존성을 선언해 두면, 실제 Docker 상태와 대조해 **통신이 불가능한 조합**을 찾아냅니다.
+
+```bash
+cp config/dependencies.example.yaml config/dependencies.yaml   # 의존성 선언 (자동 탐색 위치)
+sudo dockguard scan --category network                          # 실행 중인 Docker 상태와 대조
+```
+
+Docker가 없는 PC에서도 저장소에 포함된 **정전 사고 재현 예시**로 바로 확인할 수 있습니다.
+
+```bash
+dockguard scan -c network \
+  --docker-snapshot examples/rabbitmq-incident/snapshot.json \
+  --deps examples/rabbitmq-incident/dependencies.yaml \
+  --daemon-config examples/rabbitmq-incident/daemon.json
+```
+
+```
+ 심각도     ID        제목                      상태   대상                                  현재값
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ CRITICAL   NET-001   서비스 의존성 통신 검증   취약   backend-container → rabbitmq:5672     공유 네트워크 없음 — backend-container: bridge
+                                                                                                 / rabbitmq: messaging_mq-net
+ CRITICAL   NET-001   서비스 의존성 통신 검증   취약   report-worker → redis:6379            messaging-redis-1 컨테이너가 실행 중이 아님
+                                                                                                 (exited, restart: no) — 재시작 정책이 없어
+                                                                                                 재부팅 후 자동으로 올라오지 않음
+ HIGH       NET-004   민감 포트 외부 노출 점검  취약   Docker 호스트                         2건 — rabbitmq 0.0.0.0:5672->5672 (RabbitMQ AMQP);
+                                                                                                 rabbitmq 0.0.0.0:15672->15672 (RabbitMQ 관리 UI)
+ LOW        NET-002   고아 컨테이너 네트워크    취약   Docker 호스트                         2개 — backend-container (bridge), web (bridge)
+ MEDIUM     NET-003   기본 bridge 공유 경고     주의   Docker 호스트                         2개가 기본 bridge에 있지만 icc: false로 서로 통신 불가
+ CRITICAL   NET-001   서비스 의존성 통신 검증   통과   service-manager → rabbitmq:5672       공유 네트워크: messaging_mq-net
+ CRITICAL   NET-001   서비스 의존성 통신 검증   통과   report-worker → rabbitmq (depends_on) 공유 네트워크: messaging_mq-net
+```
+
+`--explain`을 붙이면 선언한 이유("백엔드가 RabbitMQ 큐를 소비")와 함께, **실제 컨테이너 · 네트워크 이름이 들어간 복구 명령**을 보여줍니다.
+
+```bash
+# 지금 바로 복구하려면
+docker network connect messaging_mq-net backend-container
+```
+
+#### Python을 설치할 수 없는 서버라면 — 스냅샷으로 오프라인 분석
+
+서버에서 아래 명령으로 상태를 떠 와서, dockguard가 설치된 PC에서 분석할 수 있습니다.
+
+```bash
+# 서버에서 실행 (docker 명령만 있으면 됨)
+{
+  echo '{"containers":'; docker inspect $(docker ps -aq) 2>/dev/null || echo '[]'
+  echo ',"networks":';   docker network inspect $(docker network ls -q)
+  echo ',"info":';       docker info --format '{{json .}}'
+  echo '}'
+} > snapshot.json
+
+# dockguard가 설치된 PC에서
+dockguard scan -c network --docker-snapshot snapshot.json --deps config/dependencies.yaml
+```
+
+> ⚠️ **스냅샷에는 컨테이너 환경변수(비밀번호가 들어 있을 수 있음)가 포함됩니다.** dockguard는 환경변수를 쓰지 않으므로,
+> `jq`가 있다면 첫 줄을 `docker inspect $(docker ps -aq) | jq 'map(del(.Config.Env))'`로 바꿔 제거한 뒤 옮기세요.
+> 어느 쪽이든 스냅샷은 민감 정보로 다루고 분석 후 삭제하세요.
+
+### 6. 룰 목록 보기
 
 ```bash
 dockguard rules
@@ -326,6 +392,8 @@ dockguard rules
 | `-c`, `--category [daemon\|compose\|network]` | 점검할 영역. 여러 번 지정 가능. 기본: 전체 |
 | `--daemon-config PATH` | `daemon.json` 경로 직접 지정. 기본: 자동 탐색 |
 | `-f`, `--compose PATH` | compose 파일 또는 폴더. 여러 번 지정 가능. 지정하면 compose 영역이 자동으로 포함됨. 기본: 현재 폴더 자동 탐색 |
+| `-d`, `--deps PATH` | 서비스 의존성 파일. 지정하면 network 영역이 자동으로 포함됨. 기본: `./dependencies.yaml`, `./config/dependencies.yaml` 자동 탐색 |
+| `--docker-snapshot PATH` | Docker에 직접 연결하는 대신 서버에서 떠 온 스냅샷 JSON을 분석 (오프라인 분석) |
 | `-e`, `--explain` | 취약 항목마다 위험 이유 · 수정 방법 · 부작용 · 근거를 상세 표시 |
 
 ### `dockguard fix daemon`
@@ -410,19 +478,45 @@ compose 파일을 자동 수정하지 않는 이유와, 수정 예시를 보는 
 
 </details>
 
-### Network — 네트워크 격리와 서비스 의존성 (4종, Phase 4 예정)
+### Network — 네트워크 격리와 서비스 의존성 (4종, 구현 완료)
 
-| ID | 점검 내용 |
-|----|-----------|
-| **NET-001** | **서비스 의존성 통신 검증** — `dependencies.yaml`에 선언한 A→B 통신이 실제로 가능한지(같은 네트워크 공유 여부) |
-| NET-002 | 어떤 커스텀 네트워크에도 붙지 않은 컨테이너 |
-| NET-003 | 커스텀 네트워크 대신 기본 bridge 사용 |
-| NET-004 | `0.0.0.0`으로 바인딩된 민감 포트 (5672, 15672, 3306, 6379, 27017 …) |
+실행 중인 Docker의 **실제 상태**를 봅니다 (Docker SDK → docker CLI 순으로 자동 폴백, 또는 스냅샷 파일).
+
+| ID | 점검 내용 | 판정 기준 | 심각도 | 근거 |
+|----|-----------|-----------|:------:|------|
+| **NET-001** | **서비스 의존성 통신 검증** | 선언된 A → B마다: 컨테이너 존재 · B 실행 중 · **공유 네트워크** · icc 차단 여부 · 포트 노출 | CRITICAL | dockguard 고유 |
+| NET-002 | 고아 컨테이너 | 커스텀 네트워크에 하나도 연결되지 않은 실행 중 컨테이너 | LOW | CIS 5.30 (연관) |
+| NET-003 | 기본 bridge 공유 | 기본 bridge에 2개 이상 — icc 켜짐: 취약(측면 이동), 꺼짐: 주의(통신 불가) | MEDIUM | CIS 5.30 |
+| NET-004 | 민감 포트 외부 노출 | 5672 · 15672 · 3306 · 5432 · 6379 · 27017 · 9200 · 2375 등이 `0.0.0.0`/`::`에 공개 | HIGH | CIS 5.14 |
+
+<details>
+<summary><b>NET-001이 판정하는 상황 전부 보기</b></summary>
+
+| 상황 | 결과 | 안내 |
+|------|:----:|------|
+| 같은 커스텀 네트워크를 공유 | 통과 | 공유 네트워크 이름 표시 |
+| **공유 네트워크 없음** (예: 백엔드는 기본 bridge, RabbitMQ는 커스텀 네트워크) | 취약 | `docker network connect <상대 네트워크> <컨테이너>` + compose 영구 반영 방법 |
+| 대상 컨테이너가 멈춰 있음 | 취약 | 재시작 정책이 `no`면 "재부팅 후 자동으로 올라오지 않음" + `docker update --restart unless-stopped` |
+| 컨테이너가 없음 | 취약 | 이름 변경 · 재생성 누락 가능성 |
+| 공유 네트워크가 기본 bridge뿐이고 `icc: false` | 취약 | icc 차단 (daemon.json **또는** Docker가 bridge에 기록한 실제 상태로 판단) |
+| 커스텀 네트워크에 `enable_icc=false` | 취약 | 네트워크 단위 통신 차단 |
+| 공유 네트워크가 기본 bridge뿐이고 icc 켜짐 | 주의 | 이름 DNS 불가, 재기동마다 IP 변경 |
+| 대상이 해당 포트를 EXPOSE하지 않음 | 주의 | 포트 번호 확인 |
+| host 네트워크 모드가 끼어 있음 | 주의/취약 | 공개 포트로만 통신 가능한지 확인 |
+| `network_mode: container:<x>` | — | 소유 컨테이너의 네트워크로 판단 |
+| compose로 스케일된 서비스 | — | 출발 복제본은 **전부** 닿아야 하고, 대상 복제본은 **하나라도** 닿으면 됨 |
+
+</details>
+
+**의존성은 두 곳에서 옵니다.**
+
+1. **`dependencies.yaml`** — 명시적 선언 (`--deps`로 지정하거나 `./dependencies.yaml`, `./config/dependencies.yaml`을 자동 탐색)
+2. **compose `depends_on`** — 선언 파일이 없어도, 이 호스트에서 **실제로 실행 중인** compose 프로젝트의 `depends_on`을 자동으로 검증합니다. 같은 쌍이 파일에도 있으면 파일의 선언(포트 · 이유 포함)을 우선합니다.
 
 ```yaml
-# config/dependencies.yaml — "정전 후 재기동했더니 backend → rabbitmq 통신 불가"를 즉시 발견하기 위한 선언
+# config/dependencies.yaml — config/dependencies.example.yaml을 복사해서 사용
 dependencies:
-  - from: "backend-container"
+  - from: "backend-container"   # 컨테이너 이름 또는 compose 서비스 이름
     to: "rabbitmq"
     port: 5672
     reason: "백엔드가 RabbitMQ 큐를 소비"
@@ -507,13 +601,15 @@ dockguard/
 │   ├── context.py             # ScanContext · DaemonConfig
 │   ├── collector.py           # 수집 오케스트레이션 · daemon.json (플랫폼별 탐색, rootless 감지, 파일 권한)
 │   ├── compose_loader.py      # compose 탐색 · YAML 파싱 · override 병합
+│   ├── docker_runtime.py      # 실행 중인 Docker 수집 (SDK → CLI 폴백, 스냅샷), 오류 안내
+│   ├── dependencies.py        # dependencies.yaml 로드 · compose depends_on 추론
 │   ├── engine.py              # 룰 실행 (카테고리 필터, 예외 격리)
 │   └── scoring.py             # 점수 · 등급
 ├── rules/
 │   ├── __init__.py            # 하위 모듈 재귀 자동 import
 │   ├── daemon/                # DAEMON-001 ~ 010 (+ _base.py 공통 베이스)
 │   ├── compose/               # COMPOSE-001 ~ 012 (+ _base.py: 서비스 순회, 포트/볼륨/이미지 파서)
-│   └── network/               # (Phase 4)
+│   └── network/               # NET-001 ~ 004 (의존성 통신 검증, 고아 컨테이너, 기본 bridge, 민감 포트)
 ├── remediators/
 │   └── daemon_remediator.py   # 계획 · diff · 백업 · 검증 · 롤백 · 다음 단계 안내
 ├── reporters/
@@ -521,7 +617,12 @@ dockguard/
 │   └── remediation.py         # fix / rules 화면
 └── knowledge/
     ├── references.py          # CIS 근거 표기 (v1.6.0 기준)
-    └── compose_facts.py       # 위험 capability, 시크릿 이름 규칙 등 보안 지식 상수
+    ├── compose_facts.py       # 위험 capability, 시크릿 이름 규칙 등 보안 지식 상수
+    └── network_facts.py       # 외부 노출되면 안 되는 민감 포트 목록
+config/
+└── dependencies.example.yaml  # 서비스 의존성 선언 예시
+examples/
+└── rabbitmq-incident/         # 정전 사고 재현 (스냅샷 · 의존성 · daemon.json · compose)
 ```
 
 ---
@@ -599,6 +700,11 @@ class HealthcheckRule(ComposeRule):
 | host 네트워크 · 특권 포트는 '취약'이 아닌 '주의' | 성능 · 멀티캐스트 · 웹 표준 포트처럼 정당한 사용처가 많습니다. 금지가 아니라 검토를 요청하는 것이 실무에 맞습니다. |
 | override 병합은 `docker compose` 규칙을 따름 | 자동 탐색에서는 override를 병합하고, `-f`로 파일을 지정하면 병합하지 않습니다. 실제 배포 동작과 판정이 어긋나지 않게 하기 위해서입니다. |
 | 시크릿 값은 절대 출력하지 않음 | 보안 점검 리포트가 새로운 유출 경로가 되면 안 됩니다. 변수 이름만 보여주고, 테스트로 값이 출력되지 않음을 검증합니다. |
+| 네트워크 룰은 설정 파일보다 **실행 중인 상태**를 우선 | 설정 파일에 적힌 것과 실제로 떠 있는 것은 다를 수 있습니다(수동 `docker run`, 임시 `network connect`). 장애는 실제 상태에서 일어납니다. icc도 Docker가 bridge에 기록한 값을 먼저 봅니다. |
+| SDK · CLI · 스냅샷이 같은 `docker inspect` JSON을 공유 | 수집 경로가 셋이어도 파서는 하나라 동작이 일관되고, 테스트는 가짜 inspect JSON만 넣으면 됩니다. |
+| Docker에 연결 못 하면 룰마다 '건너뜀'을 남김 | 조용히 결과를 빼면 "네트워크는 문제없음"으로 오해합니다. 점검하지 못했다는 사실 자체를 표에 드러냅니다. |
+| compose `depends_on`을 의존성으로 자동 추론 | 선언 파일을 쓰지 않아도 기본 검증이 되게 합니다. 단, 이 호스트에서 실행 중인 프로젝트만 대상으로 해 다른 서버용 compose 파일로 오탐하지 않습니다. |
+| NET-004는 Docker가 없으면 compose 파일로 대체 판정 | 민감 포트 노출은 가장 흔한 사고 경로라, 실제 상태를 볼 수 없을 때도 확인할 수 있는 만큼은 확인합니다. |
 
 ---
 
@@ -610,7 +716,7 @@ pytest                                        # 전체 테스트
 pytest --cov=dockguard --cov-report=term-missing
 ```
 
-- **테스트 511개, 커버리지 98%** — 실제 Docker 없이 실행됩니다.
+- **테스트 621개, 커버리지 98%** — 실제 Docker 없이 실행됩니다.
 - 각 룰마다 **통과 · 취약 · 파일 없음(기본값) · 파싱 실패 · 잘못된 타입** 케이스를 공통 테스트로 검사하고, 룰별 경계 조건을 따로 검사합니다.
 - compose 룰은 안전 · 취약 fixture 전체에 대한 공통 테스트와, 오탐 방지 로직(변수 참조, 이스케이프, 레지스트리 포트, 멀티 스테이지 Dockerfile 등)에 대한 경계 테스트를 갖추고 있습니다.
 - Remediator는 **백업 내용이 원본과 같은지, 검증 실패 시 원본과 디렉터리가 그대로인지, 적용 후 검증 실패 시 롤백되는지**를 테스트합니다.
@@ -621,6 +727,9 @@ pytest --cov=dockguard --cov-report=term-missing
 | `tests/test_daemon_rules.py` | DAEMON-001 ~ 010 판정 로직과 설명 필드 품질 |
 | `tests/test_compose_rules.py` | COMPOSE-001 ~ 012 판정 로직, 파서, 시크릿 비노출, 수정 예시 |
 | `tests/test_compose_loader.py` | compose 탐색 우선순위 · 깊이 제한 · override 병합 · YAML 오류 위치 |
+| `tests/test_network_rules.py` | NET-001 ~ 004 판정 (공유 네트워크, icc 차단, 멈춘 컨테이너, host/container 모드, 스케일 서비스, 정전 시나리오) |
+| `tests/test_docker_runtime.py` | SDK · CLI · 스냅샷 수집 경로와 폴백, inspect 파서, Docker 오류 안내 분류 |
+| `tests/test_dependencies.py` | 의존성 파일 검증 오류 메시지, depends_on 추론, 선언 우선 중복 제거 |
 | `tests/test_remediator.py` | 계획 · diff · 백업 · 검증 · 롤백 · 직렬화 · 다음 단계 안내 |
 | `tests/test_collector.py` | 플랫폼별 탐색, BOM · 빈 파일 · 권한 오류, rootless 감지 |
 | `tests/test_engine.py` | 자동 등록 · 중복 ID 거부 · 카테고리 필터 · 예외 격리 |
@@ -628,6 +737,9 @@ pytest --cov=dockguard --cov-report=term-missing
 | `tests/test_scoring.py` | 감점 · 하한 · 등급 경계값 |
 | `tests/fixtures/daemon/` | 안전 · 취약 · 빈 객체 · 깨진 JSON · 잘못된 타입 예시 |
 | `tests/fixtures/compose/` | 안전 · 취약(제작 배경 사고의 RabbitMQ 구성 재현) · 깨진 YAML 예시 |
+| `examples/rabbitmq-incident/` | 정전 후 서버 상태 스냅샷 — 테스트와 데모에 함께 사용 |
+
+> 테스트는 실제 Docker에 절대 연결하지 않습니다. 개발 PC나 CI 러너에 Docker가 떠 있어도 결과가 달라지지 않도록 conftest에서 수집 경로를 막아 둡니다.
 
 ---
 
@@ -635,14 +747,15 @@ pytest --cov=dockguard --cov-report=term-missing
 
 정직하게 적어 둡니다.
 
-- **`daemon.json`만 봅니다.** `dockerd` 명령행 플래그나 systemd drop-in(`/etc/systemd/system/docker.service.d/`)으로 준 설정은 아직 반영하지 않습니다. Phase 4에서 `docker info` 수집을 추가해 실제 적용 상태와 교차 확인할 예정입니다.
-- **rootless 모드는 설정 파일 경로로 판별합니다.** `docker info`의 보안 옵션으로 확인하는 방식은 Phase 4에서 추가합니다.
+- **daemon 룰은 주로 `daemon.json`을 봅니다.** `dockerd` 명령행 플래그나 systemd drop-in으로 준 설정은, Docker에 연결된 경우 userns-remap · rootless(`docker info`)와 icc(기본 bridge 옵션)만 실제 상태로 교차 확인합니다. 나머지 항목은 아직 설정 파일 기준입니다.
+- **NET-001은 네트워크 경로까지만 확인합니다.** 대상이 실제로 포트를 리스닝하는지, 비밀번호가 맞는지, `DOCKER-USER` 체인이 막고 있지 않은지는 알 수 없습니다. 통과 후에도 연결이 안 되면 애플리케이션 로그의 인증 오류를 확인하세요.
+- 네트워크 점검은 **로컬 Docker 호스트 하나**를 봅니다. Swarm 오버레이 네트워크나 여러 호스트에 걸친 의존성은 다루지 않습니다.
 - **Windows에서는 파일 권한(DAEMON-007)을 점검하지 않습니다.** POSIX 권한 개념이 없기 때문입니다.
 - `dockerd --validate`는 Docker 23.0 이상에서만 동작합니다. 그보다 오래된 버전이나 dockerd가 없는 환경에서는 JSON 문법 검증만 하고, 그 사실을 결과에 표시합니다.
 - **compose의 `extends:` · `include:`는 아직 따라가지 않습니다.** YAML 앵커(`<<: *common`)는 지원합니다.
 - `docker-compose.prod.yml` 같은 **부분 파일은 자동 탐색하지 않습니다.** 단독으로 보면 base 설정이 빠져 오탐이 많기 때문입니다. 필요하면 `-f`로 직접 지정하세요.
 - 시크릿 판정은 **환경변수 이름 규칙**에 기반합니다. 이름이 평범한 변수(예: `DB_CONN=postgres://user:pass@...`)에 들어간 비밀번호는 아직 잡지 못합니다.
-- COMPOSE-002는 원격 이미지의 `USER`를 알 수 없어, 이미지가 내부적으로 non-root로 실행되더라도 compose에 `user:`가 없으면 취약으로 표시할 수 있습니다. Phase 4에서 로컬 이미지 정보(`docker image inspect`)로 보완할 예정입니다.
+- COMPOSE-002는 원격 이미지의 `USER`를 알 수 없어, 이미지가 내부적으로 non-root로 실행되더라도 compose에 `user:`가 없으면 취약으로 표시할 수 있습니다. 로컬 이미지 정보(`docker image inspect`)로 보완하는 것은 추후 과제입니다.
 
 ---
 
@@ -651,6 +764,6 @@ pytest --cov=dockguard --cov-report=term-missing
 - [x] **Phase 1** — 코어 엔진, 플러그인 룰 레지스트리, 터미널 리포트, 보안 점수
 - [x] **Phase 2** — daemon 룰 10종, 안전한 자동 수정(`fix daemon`), `rules` 명령
 - [x] **Phase 3** — docker-compose 스캐너 (룰 12종, 자동 탐색 + override 병합, 서비스별 수정 예시)
-- [ ] **Phase 4** — 네트워크 격리 + **서비스 의존성 통신 검증** (`--deps`), Docker SDK/CLI 수집
+- [x] **Phase 4** — 네트워크 격리 + **서비스 의존성 통신 검증** (`--deps`, depends_on 추론), Docker SDK/CLI/스냅샷 수집
 - [ ] **Phase 5** — HTML · JSON 리포트, `dockguard learn` 보안 학습 기능
 - [ ] **Phase 6** — GitHub Actions CI, 데모 시나리오(정전 후 의존성 검증 재현), 스크린샷

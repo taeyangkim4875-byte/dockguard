@@ -1,0 +1,124 @@
+{
+  "_comment": "정전 후 재부팅된 서버의 docker inspect 결과 (dockguard가 쓰는 필드만 남긴 축약본)",
+  "containers": [
+    {
+      "Id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "Name": "/rabbitmq",
+      "State": {"Status": "running"},
+      "Config": {
+        "Image": "rabbitmq:3.13.7-management",
+        "ExposedPorts": {"4369/tcp": {}, "5671/tcp": {}, "5672/tcp": {}, "15671/tcp": {}, "15672/tcp": {}, "15691/tcp": {}, "15692/tcp": {}, "25672/tcp": {}},
+        "Labels": {
+          "com.docker.compose.project": "messaging",
+          "com.docker.compose.service": "rabbitmq",
+          "com.docker.compose.project.config_files": "/srv/messaging/docker-compose.yml"
+        }
+      },
+      "HostConfig": {"NetworkMode": "messaging_mq-net", "RestartPolicy": {"Name": "unless-stopped"}},
+      "NetworkSettings": {
+        "Networks": {"messaging_mq-net": {"IPAddress": "172.20.0.2", "Aliases": ["rabbitmq"]}},
+        "Ports": {
+          "5672/tcp": [{"HostIp": "0.0.0.0", "HostPort": "5672"}, {"HostIp": "::", "HostPort": "5672"}],
+          "15672/tcp": [{"HostIp": "0.0.0.0", "HostPort": "15672"}, {"HostIp": "::", "HostPort": "15672"}],
+          "4369/tcp": null,
+          "25672/tcp": null
+        }
+      }
+    },
+    {
+      "Id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+      "Name": "/service-manager",
+      "State": {"Status": "running"},
+      "Config": {
+        "Image": "myorg/service-manager:2.3.0",
+        "Labels": {
+          "com.docker.compose.project": "messaging",
+          "com.docker.compose.service": "service-manager",
+          "com.docker.compose.project.config_files": "/srv/messaging/docker-compose.yml"
+        }
+      },
+      "HostConfig": {"NetworkMode": "messaging_mq-net", "RestartPolicy": {"Name": "unless-stopped"}},
+      "NetworkSettings": {"Networks": {"messaging_mq-net": {"IPAddress": "172.20.0.3"}}, "Ports": {}}
+    },
+    {
+      "Id": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "Name": "/messaging-report-worker-1",
+      "State": {"Status": "running"},
+      "Config": {
+        "Image": "myorg/report-worker:1.1.0",
+        "Labels": {
+          "com.docker.compose.project": "messaging",
+          "com.docker.compose.service": "report-worker",
+          "com.docker.compose.project.config_files": "/srv/messaging/docker-compose.yml"
+        }
+      },
+      "HostConfig": {"NetworkMode": "messaging_mq-net", "RestartPolicy": {"Name": "unless-stopped"}},
+      "NetworkSettings": {"Networks": {"messaging_mq-net": {"IPAddress": "172.20.0.4"}}, "Ports": {}}
+    },
+    {
+      "Id": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+      "Name": "/messaging-redis-1",
+      "State": {"Status": "exited"},
+      "Config": {
+        "Image": "redis:7.4-alpine",
+        "ExposedPorts": {"6379/tcp": {}},
+        "Labels": {
+          "com.docker.compose.project": "messaging",
+          "com.docker.compose.service": "redis",
+          "com.docker.compose.project.config_files": "/srv/messaging/docker-compose.yml"
+        }
+      },
+      "HostConfig": {"NetworkMode": "messaging_mq-net", "RestartPolicy": {"Name": "no"}},
+      "NetworkSettings": {"Networks": {"messaging_mq-net": {"IPAddress": ""}}, "Ports": {}}
+    },
+    {
+      "Id": "e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6",
+      "Name": "/backend-container",
+      "State": {"Status": "running"},
+      "Config": {"Image": "myorg/backend:4.2.1", "ExposedPorts": {"8080/tcp": {}}, "Labels": {}},
+      "HostConfig": {"NetworkMode": "default", "RestartPolicy": {"Name": "always"}},
+      "NetworkSettings": {
+        "Networks": {"bridge": {"IPAddress": "172.17.0.2"}},
+        "Ports": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]}
+      }
+    },
+    {
+      "Id": "f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1",
+      "Name": "/web",
+      "State": {"Status": "running"},
+      "Config": {"Image": "nginx:1.27-alpine", "ExposedPorts": {"80/tcp": {}}, "Labels": {}},
+      "HostConfig": {"NetworkMode": "default", "RestartPolicy": {"Name": "always"}},
+      "NetworkSettings": {
+        "Networks": {"bridge": {"IPAddress": "172.17.0.3"}},
+        "Ports": {"80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "80"}]}
+      }
+    }
+  ],
+  "networks": [
+    {
+      "Id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "Name": "bridge",
+      "Driver": "bridge",
+      "Internal": false,
+      "Options": {
+        "com.docker.network.bridge.default_bridge": "true",
+        "com.docker.network.bridge.enable_icc": "false",
+        "com.docker.network.bridge.enable_ip_masquerade": "true",
+        "com.docker.network.bridge.name": "docker0"
+      }
+    },
+    {"Id": "2222222222222222222222222222222222222222222222222222222222222222", "Name": "host", "Driver": "host", "Internal": false, "Options": {}},
+    {"Id": "3333333333333333333333333333333333333333333333333333333333333333", "Name": "none", "Driver": "null", "Internal": false, "Options": {}},
+    {
+      "Id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "Name": "messaging_mq-net",
+      "Driver": "bridge",
+      "Internal": false,
+      "Options": {}
+    }
+  ],
+  "info": {
+    "ServerVersion": "27.3.1",
+    "SecurityOptions": ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"]
+  }
+}

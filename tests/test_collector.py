@@ -129,10 +129,18 @@ def test_collect_auto_detect_missing_adds_notice(monkeypatch):
     assert any("찾지 못했습니다" in n for n in context.notices)
 
 
-def test_collect_skips_daemon_when_not_requested():
-    context = collect(categories={"network"})
-    assert context.daemon is None
+def test_daemon_only_scan_does_not_touch_compose_or_docker():
+    context = collect(categories={"daemon"}, daemon_config_path=Path(__file__).parent / "fixtures/daemon/secure.json")
     assert context.compose is None
+    assert context.docker is None
+
+
+def test_network_scan_reads_daemon_silently(monkeypatch, tmp_path):
+    """네트워크 룰은 icc 설정을 참고하므로 daemon.json을 읽지만, daemon 관련 안내는 띄우지 않는다."""
+    monkeypatch.setattr(collector, "find_daemon_config", lambda: None)
+    context = collect(categories={"network"}, search_root=tmp_path)
+    assert context.daemon is not None
+    assert not any("daemon.json" in n for n in context.notices)
 
 
 def test_load_keeps_raw_text_for_diff(daemon_fixture):

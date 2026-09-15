@@ -12,6 +12,7 @@ from dockguard.rules import load_all_rules
 
 DAEMON_RULE_IDS = {f"DAEMON-{n:03d}" for n in range(1, 11)}
 COMPOSE_RULE_IDS = {f"COMPOSE-{n:03d}" for n in range(1, 13)}
+NETWORK_RULE_IDS = {f"NET-{n:03d}" for n in range(1, 5)}
 # DAEMON-007(파일 권한)은 OS에 따라 결과가 달라 내용 점검 룰만 따로 본다
 DAEMON_CONTENT_RULE_IDS = DAEMON_RULE_IDS - {"DAEMON-007"}
 
@@ -56,6 +57,7 @@ def test_auto_discovery_registers_all_rules():
     ids = {cls.id for cls in registered_rule_classes()}
     assert DAEMON_RULE_IDS <= ids
     assert COMPOSE_RULE_IDS <= ids
+    assert NETWORK_RULE_IDS <= ids
 
 
 def test_load_all_rules_is_idempotent():
@@ -80,7 +82,7 @@ def test_base_rule_classes_are_not_registered():
     """공통 베이스(DaemonRule, BooleanDaemonRule)는 @register가 없으므로 실행 대상이 아니다."""
     load_all_rules()
     names = {cls.__name__ for cls in registered_rule_classes()}
-    assert not names & {"DaemonRule", "BooleanDaemonRule", "ComposeRule"}
+    assert not names & {"DaemonRule", "BooleanDaemonRule", "ComposeRule", "NetworkRule"}
 
 
 def test_register_rejects_duplicate_id(monkeypatch):

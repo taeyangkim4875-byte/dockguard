@@ -121,10 +121,61 @@ def test_fix_compose_explains_no_autofix():
     assert "자동으로 수정하지 않습니다" in result.output
 
 
-def test_scan_category_without_rules_is_friendly():
+def test_scan_category_without_rules_is_friendly(monkeypatch):
+    from dockguard import cli
+
+    class NoRules:
+        def __init__(self, categories=None):
+            self.rules = []
+
+    monkeypatch.setattr(cli, "ScanEngine", NoRules)
     result = _scan("--category", "network")
     assert result.exit_code == 0, result.output
     assert "등록된 룰이 없습니다" in result.output
+
+
+# ============================================================================ 네트워크 / 의존성 (Phase 4)
+
+
+def test_incident_scenario_from_snapshot(incident_dir):
+    """README · 데모의 핵심 시나리오: 정전 후 backend → rabbitmq 통신 불가를 즉시 발견."""
+    result = _scan(
+        "-c", "network",
+        "--docker-snapshot", str(incident_dir / "snapshot.json"),
+        "--deps", str(incident_dir / "dependencies.yaml"),
+        "--daemon-config", str(incident_dir / "daemon.json"),
+        "--explain",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert "공유 네트워크 없음" in result.output
+    assert "docker network connect messaging_mq-net backend-container" in result.output
+    assert "재시작 정책이 없어" in result.output
+    assert "RabbitMQ 관리 UI" in result.output
+
+
+def test_snapshot_option_implies_network_category(incident_dir):
+    result = _scan("-c", "daemon", "--docker-snapshot", str(incident_dir / "snapshot.json"))
+    assert result.exit_code == 0, result.output
+    assert "NET-004" in result.output
+
+
+def test_network_scan_without_docker_is_friendly(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = _scan("-c", "network")
+    assert result.exit_code == 0, result.output
+    assert "Docker 상태를 수집하지 못해" in result.output
+    assert "건너뜀" in result.output
+
+
+def test_missing_deps_file(tmp_path):
+    result = _scan("--deps", str(tmp_path / "nope.yaml"))
+    assert result.exit_code == 2
+    assert "의존성 파일" in result.output
+
+
+def test_missing_snapshot_file(tmp_path):
+    result = _scan("--docker-snapshot", str(tmp_path / "nope.json"))
+    assert result.exit_code == 2
 
 
 def test_scan_rejects_unknown_category():

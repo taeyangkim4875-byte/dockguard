@@ -26,7 +26,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Docker SDK — 없으면 docker CLI로 자동 폴백하므로 선택 사항
+docker = [
+    "docker>=7.0",
+]
 dev = [
+    "docker>=7.0",
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]

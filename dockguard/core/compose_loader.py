@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -134,7 +135,13 @@ def load_compose_project(path: Path, override: Path | None = None) -> ComposePro
         )
     # `svc:`처럼 값이 비어 있는 서비스도 빈 설정으로 취급
     normalized = {str(name): (cfg if isinstance(cfg, dict) else {}) for name, cfg in services.items()}
-    return ComposeProject(path=path, services=normalized, override=applied_override)
+    name = str(data.get("name") or "") or default_project_name(path.parent)
+    return ComposeProject(path=path, services=normalized, override=applied_override, name=name)
+
+
+def default_project_name(directory: Path) -> str:
+    """`docker compose`의 기본 프로젝트 이름 규칙: 폴더 이름을 소문자로, 영숫자·-·_만 남긴다."""
+    return re.sub(r"[^a-z0-9_-]", "", directory.resolve().name.lower())
 
 
 def collect_compose_projects(targets: list[Path] | None, search_root: Path) -> list[ComposeProject]:

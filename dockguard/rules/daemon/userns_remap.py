@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dockguard.core.context import DaemonConfig
+from dockguard.core.context import DaemonConfig, ScanContext
 from dockguard.core.models import Finding, Severity, Status
 from dockguard.core.rule import register
 from dockguard.knowledge.references import cis
@@ -81,6 +81,17 @@ RabbitMQ 계정·큐가 볼륨 초기화로 사라지는 것과 똑같은 상황
 - user namespace를 지원하지 않는 외부 볼륨/스토리지 드라이버는 동작하지 않을 수 있다."""
 
     learn_more = "https://docs.docker.com/engine/security/userns-remap/"
+
+    def check(self, context: ScanContext) -> list[Finding]:
+        # 실행 중인 데몬의 실제 상태가 있으면 우선한다 (daemon.json이 아니라 dockerd 실행 옵션으로 켠 경우도 잡힌다)
+        runtime = context.docker
+        if runtime is not None and runtime.available:
+            target = context.daemon.target_label if context.daemon else "Docker 데몬"
+            if runtime.has_security_option("rootless"):
+                return [self.make(Status.PASS, target=target, current="rootless 모드 (docker info로 확인)")]
+            if runtime.has_security_option("userns"):
+                return [self.make(Status.PASS, target=target, current="user namespace 적용 중 (docker info로 확인)")]
+        return super().check(context)
 
     def evaluate(self, daemon: DaemonConfig) -> list[Finding]:
         target = daemon.target_label

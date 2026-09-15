@@ -1,0 +1,45 @@
+# 메시징 스택 (정전 사고 재현 예시)
+# backend-container는 이 compose 밖에서 `docker run`으로 따로 띄워져 있다.
+name: messaging
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13.7-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672"        # 0.0.0.0 — 외부에서 접속 가능 (NET-004)
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks: [mq-net]
+
+  service-manager:
+    image: myorg/service-manager:2.3.0
+    container_name: service-manager
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    depends_on: [rabbitmq]
+    networks: [mq-net]
+
+  report-worker:
+    image: myorg/report-worker:1.1.0
+    restart: unless-stopped
+    depends_on: [rabbitmq, redis]
+    networks: [mq-net]
+
+  redis:
+    image: redis:7.4-alpine
+    # restart 정책 없음 — 정전 후 재부팅되면 올라오지 않는다
+    networks: [mq-net]
+
+networks:
+  mq-net:
+
+volumes:
+  rabbitmq-data:

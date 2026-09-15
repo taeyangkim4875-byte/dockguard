@@ -1,0 +1,28 @@
+# dockguard 서비스 의존성 선언 예시
+#
+# "A가 B의 포트로 접속해야 한다"를 적어 두면, dockguard가 실제 Docker 상태와 대조해
+# 두 컨테이너가 같은 네트워크에 있는지, B가 실행 중인지, 통신이 막혀 있지 않은지 검증합니다 (NET-001).
+#
+# 사용법:
+#   cp config/dependencies.example.yaml config/dependencies.yaml   # 자동 탐색되는 위치
+#   dockguard scan --category network
+#   dockguard scan --deps ./my-deps.yaml                            # 다른 위치라면 직접 지정
+#
+# from / to 에는 컨테이너 이름(docker ps의 NAMES) 또는 compose 서비스 이름을 쓸 수 있습니다.
+# compose 파일의 depends_on은 이 파일이 없어도 자동으로 검증됩니다.
+
+dependencies:
+  - from: "backend-container"
+    to: "rabbitmq"
+    port: 5672
+    reason: "백엔드가 RabbitMQ 큐를 소비"
+
+  - from: "service-manager"
+    to: "rabbitmq"
+    port: 5672
+    reason: "서비스 매니저가 메시지 발행"
+
+  # - from: "backend-container"
+  #   to: "postgres"
+  #   port: 5432
+  #   reason: "백엔드가 주문 데이터를 저장"

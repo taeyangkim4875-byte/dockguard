@@ -67,6 +67,23 @@ def scan(
             help="compose 파일 또는 폴더 (여러 번 지정 가능). 기본: 현재 디렉터리와 하위 폴더 자동 탐색",
         ),
     ] = None,
+    deps: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--deps",
+            "-d",
+            help="서비스 의존성 파일 (config/dependencies.example.yaml 참고). 기본: ./dependencies.yaml, ./config/dependencies.yaml 자동 탐색",
+            dir_okay=False,
+        ),
+    ] = None,
+    docker_snapshot: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--docker-snapshot",
+            help="Docker에 직접 연결하는 대신 서버에서 떠 온 스냅샷 JSON을 분석합니다 (오프라인 분석).",
+            dir_okay=False,
+        ),
+    ] = None,
     explain: Annotated[
         bool,
         typer.Option("--explain", "-e", help="각 항목의 위험 이유 · 수정 방법 · 부작용을 상세히 표시합니다."),
@@ -75,15 +92,23 @@ def scan(
     """Docker 호스트의 보안 설정을 진단합니다."""
     console = Console()
     categories = {c.value for c in category} if category else {c.value for c in Category}
+    # 대상 파일을 직접 지정했다면 해당 영역 점검은 당연히 포함
     if compose:
-        categories.add(Category.COMPOSE.value)  # compose 파일을 지정했다면 compose 점검은 당연히 포함
+        categories.add(Category.COMPOSE.value)
+    if deps or docker_snapshot:
+        categories.add(Category.NETWORK.value)
 
-    if daemon_config is not None and not daemon_config.is_file():
-        console.print(f"[bold red]오류:[/] 지정한 daemon.json 파일을 찾을 수 없습니다: {daemon_config}")
-        raise typer.Exit(code=2)
+    missing_files = [
+        (label, path)
+        for label, path in (("daemon.json", daemon_config), ("의존성 파일", deps), ("스냅샷 파일", docker_snapshot))
+        if path is not None and not path.is_file()
+    ]
+    for label, path in missing_files:
+        console.print(f"[bold red]오류:[/] 지정한 {label}을(를) 찾을 수 없습니다: {path}")
     missing = [p for p in compose or [] if not p.exists()]
     if missing:
         console.print(f"[bold red]오류:[/] 지정한 compose 파일/폴더를 찾을 수 없습니다: {', '.join(map(str, missing))}")
+    if missing_files or missing:
         raise typer.Exit(code=2)
 
     engine = ScanEngine(categories=categories)
@@ -95,7 +120,13 @@ def scan(
         raise typer.Exit(code=0)
 
     with console.status("[bold blue]Docker 설정을 수집하고 점검하는 중...[/]", spinner="dots"):
-        context = collect(categories=categories, daemon_config_path=daemon_config, compose_paths=compose)
+        context = collect(
+            categories=categories,
+            daemon_config_path=daemon_config,
+            compose_paths=compose,
+            deps_path=deps,
+            docker_snapshot=docker_snapshot,
+        )
         result = engine.run(context)
         score = calculate_score(result.findings)
 

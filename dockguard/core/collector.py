@@ -17,6 +17,13 @@ from typing import Iterable
 
 from dockguard.core.compose_loader import DEFAULT_SEARCH_DEPTH, collect_compose_projects
 from dockguard.core.context import ComposeProject, DaemonConfig, FileStat, ScanContext
+from dockguard.core.dependencies import (
+    DependencyFileError,
+    find_dependency_file,
+    infer_compose_dependencies,
+    load_dependency_file,
+)
+from dockguard.core.docker_runtime import collect_runtime
 from dockguard.core.models import Category
 
 # 리눅스 표준 경로. 파일이 어디에도 없을 때 "여기에 만들면 된다"는 안내에도 쓴다.
@@ -103,16 +110,25 @@ def collect(
     daemon_config_path: Path | None = None,
     compose_paths: list[Path] | None = None,
     search_root: Path | None = None,
+    deps_path: Path | None = None,
+    docker_snapshot: Path | None = None,
 ) -> ScanContext:
     """요청된 카테고리에 필요한 데이터만 수집한다.
+
+    영역끼리 서로의 데이터를 참고하므로(예: compose 룰이 daemon 기본값을, 네트워크 룰이 icc와
+    compose depends_on을 본다), 선택되지 않은 영역도 필요하면 조용히 수집한다. 그 영역의 안내·오류는
+    해당 영역을 선택했을 때만 보여준다.
 
     Args:
         categories: 점검할 카테고리. None이면 전체.
         daemon_config_path: daemon.json 경로를 직접 지정 (None이면 자동 탐색).
         compose_paths: compose 파일 또는 폴더 (None이면 search_root에서 자동 탐색).
-        search_root: compose 자동 탐색 시작 폴더 (기본: 현재 디렉터리).
+        search_root: compose · 의존성 파일 자동 탐색 시작 폴더 (기본: 현재 디렉터리).
+        deps_path: 서비스 의존성 파일 (None이면 search_root에서 자동 탐색).
+        docker_snapshot: Docker 대신 읽을 스냅샷 파일 (오프라인 분석).
     """
     selected = set(categories) if categories else {c.value for c in Category}
+    root = search_root or Path.cwd()
     context = ScanContext(
         hostname=socket.gethostname(),
         scanned_at=datetime.now().astimezone(),
@@ -121,17 +137,27 @@ def collect(
 
     daemon_selected = Category.DAEMON.value in selected
     compose_selected = Category.COMPOSE.value in selected
-    # compose 룰도 daemon 설정을 참고한다 (예: 데몬 기본 no-new-privileges, userns-remap)
-    if daemon_selected or compose_selected:
+    network_selected = Category.NETWORK.value in selected
+
+    if daemon_selected or compose_selected or network_selected:
         context.daemon = _collect_daemon(context, daemon_config_path, announce=daemon_selected)
-    if compose_selected:
-        context.compose = _collect_compose(context, compose_paths, search_root or Path.cwd())
+    if compose_selected or network_selected:
+        context.compose = _collect_compose(context, compose_paths, root, announce=compose_selected)
+    if network_selected:
+        context.docker = collect_runtime(docker_snapshot)
+        if not context.docker.available:
+            context.errors.append(f"Docker 상태를 수집하지 못해 네트워크 점검을 건너뜁니다 — {context.docker.error}")
+        _collect_dependencies(context, deps_path, root)
 
     return context
 
 
-def _collect_compose(context: ScanContext, targets: list[Path] | None, search_root: Path) -> list[ComposeProject]:
+def _collect_compose(
+    context: ScanContext, targets: list[Path] | None, search_root: Path, announce: bool = True
+) -> list[ComposeProject]:
     projects = collect_compose_projects(targets, search_root)
+    if not announce:
+        return projects
     if not projects:
         where = "지정한 폴더" if targets else "현재 디렉터리"
         context.notices.append(
@@ -142,6 +168,25 @@ def _collect_compose(context: ScanContext, targets: list[Path] | None, search_ro
         if project.error is not None:
             context.errors.append(f"compose 파일을 점검하지 못했습니다 — {project.label}: {project.error}")
     return projects
+
+
+def _collect_dependencies(context: ScanContext, explicit: Path | None, search_root: Path) -> None:
+    path = explicit or find_dependency_file(search_root)
+    if path is not None:
+        try:
+            context.dependencies.extend(load_dependency_file(path))
+            context.dependency_file = path
+        except DependencyFileError as exc:
+            context.errors.append(f"의존성 파일을 읽지 못했습니다 — {path}: {exc}")
+
+    if context.docker is not None and context.docker.available:
+        declared = {(d.source, d.target) for d in context.dependencies}
+        # 사용자가 이미 선언한 쌍은 depends_on 추론으로 중복 검사하지 않는다
+        context.dependencies.extend(
+            d
+            for d in infer_compose_dependencies(context.compose_projects, context.docker)
+            if (d.source, d.target) not in declared
+        )
 
 
 def _is_rootless_path(path: Path) -> bool:
