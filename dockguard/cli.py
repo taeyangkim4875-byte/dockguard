@@ -59,6 +59,14 @@ def scan(
         Optional[Path],
         typer.Option("--daemon-config", help="daemon.json 경로. 기본: 플랫폼별 표준 위치 자동 탐색", dir_okay=False),
     ] = None,
+    compose: Annotated[
+        Optional[list[Path]],
+        typer.Option(
+            "--compose",
+            "-f",
+            help="compose 파일 또는 폴더 (여러 번 지정 가능). 기본: 현재 디렉터리와 하위 폴더 자동 탐색",
+        ),
+    ] = None,
     explain: Annotated[
         bool,
         typer.Option("--explain", "-e", help="각 항목의 위험 이유 · 수정 방법 · 부작용을 상세히 표시합니다."),
@@ -67,9 +75,15 @@ def scan(
     """Docker 호스트의 보안 설정을 진단합니다."""
     console = Console()
     categories = {c.value for c in category} if category else {c.value for c in Category}
+    if compose:
+        categories.add(Category.COMPOSE.value)  # compose 파일을 지정했다면 compose 점검은 당연히 포함
 
     if daemon_config is not None and not daemon_config.is_file():
         console.print(f"[bold red]오류:[/] 지정한 daemon.json 파일을 찾을 수 없습니다: {daemon_config}")
+        raise typer.Exit(code=2)
+    missing = [p for p in compose or [] if not p.exists()]
+    if missing:
+        console.print(f"[bold red]오류:[/] 지정한 compose 파일/폴더를 찾을 수 없습니다: {', '.join(map(str, missing))}")
         raise typer.Exit(code=2)
 
     engine = ScanEngine(categories=categories)
@@ -81,7 +95,7 @@ def scan(
         raise typer.Exit(code=0)
 
     with console.status("[bold blue]Docker 설정을 수집하고 점검하는 중...[/]", spinner="dots"):
-        context = collect(categories=categories, daemon_config_path=daemon_config)
+        context = collect(categories=categories, daemon_config_path=daemon_config, compose_paths=compose)
         result = engine.run(context)
         score = calculate_score(result.findings)
 
@@ -181,6 +195,20 @@ def fix_daemon(
         console.print(f"[bold red]수정 실패:[/] {exc}")
         raise typer.Exit(code=1) from exc
     render_apply_result(console, applied, next_steps(plan, applied))
+
+
+@fix_app.command("compose")
+def fix_compose() -> None:
+    """compose 파일은 자동 수정하지 않습니다 (이유와 대안 안내)."""
+    console = Console()
+    console.print(
+        "[bold yellow]compose 파일은 자동으로 수정하지 않습니다.[/]\n\n"
+        "서비스 간 의존성(네트워크, 볼륨 소유권, 기동 순서)이 얽혀 있어, 설정 한 줄을 바꿔도 다른 서비스가 "
+        "끊길 수 있기 때문입니다. 대신 영향받는 서비스 이름을 넣은 [bold]수정 예시 YAML[/]을 보여드립니다:\n\n"
+        "  [bold cyan]dockguard scan --category compose --explain[/]\n\n"
+        "[dim]예시를 반영한 뒤 `docker compose config`로 문법을 확인하고, "
+        "`docker compose up -d --force-recreate <서비스>`로 하나씩 적용하세요.[/]"
+    )
 
 
 def _configure_stdio() -> None:

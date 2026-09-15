@@ -1,0 +1,64 @@
+# 모든 compose 룰을 통과하는 예시
+services:
+  backend:
+    image: myorg/backend:1.4.2
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: backend
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      PASSWORD_MIN_LENGTH: "12"
+    ports:
+      - "127.0.0.1:8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks: [app-net]
+    secrets: [db_password]
+
+  rabbitmq:
+    image: rabbitmq:3.13.7-management@sha256:0f6a5f1c3e6f4e8d2b7a9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f
+    user: "999:999"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges]
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS가 필요합니다}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    mem_limit: 1g
+    cpus: 1.5
+    networks: [app-net]
+
+  web:
+    image: nginx:1.27-alpine
+    user: "101:101"
+    read_only: true
+    tmpfs: [/var/cache/nginx, /run]
+    security_opt: ["no-new-privileges=true"]
+    cap_add: [NET_BIND_SERVICE]
+    ports:
+      - "443:8443"
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128M }
+    networks: [app-net]
+
+networks:
+  app-net:
+
+volumes:
+  rabbitmq-data:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt

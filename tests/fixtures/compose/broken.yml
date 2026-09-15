@@ -1,0 +1,5 @@
+services:
+  backend:
+    image: myorg/backend:1.0
+     environment:
+      - A=1

@@ -130,8 +130,9 @@ def test_collect_auto_detect_missing_adds_notice(monkeypatch):
 
 
 def test_collect_skips_daemon_when_not_requested():
-    context = collect(categories={"compose"})
+    context = collect(categories={"network"})
     assert context.daemon is None
+    assert context.compose is None
 
 
 def test_load_keeps_raw_text_for_diff(daemon_fixture):

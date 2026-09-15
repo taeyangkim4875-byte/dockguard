@@ -1,0 +1,25 @@
+# 모든 compose 룰에 걸리는 예시 (dockguard 제작 배경이 된 RabbitMQ 구성의 실수들을 재현)
+services:
+  backend:
+    image: myorg/backend                  # COMPOSE-011 태그 없음
+    privileged: true                      # COMPOSE-001
+    pid: host                             # COMPOSE-009
+    network_mode: host                    # COMPOSE-008
+    cap_add: [SYS_ADMIN, CAP_NET_ADMIN]   # COMPOSE-010
+    environment:
+      - RABBITMQ_HOST=203.0.113.10        # 호스트 외부 IP로 접속 (실제 사고 원인)
+      - RABBITMQ_PASSWORD=backend-pass-1  # COMPOSE-005
+      - JWT_SECRET=${JWT_SECRET:-dev-secret}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # COMPOSE-004
+
+  rabbitmq:
+    image: rabbitmq:latest                # COMPOSE-011
+    ipc: host                             # COMPOSE-009
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123     # COMPOSE-005
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "25:25"                           # COMPOSE-012

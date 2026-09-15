@@ -66,6 +66,33 @@ class DaemonConfig:
 
 
 @dataclass
+class ComposeProject:
+    """compose 파일 하나(+ 자동 로드되는 override)를 파싱한 결과.
+
+    `docker compose`처럼 같은 폴더의 `*.override.y(a)ml`을 병합해서 판단한다.
+    base에는 없고 override에만 있는 설정(예: user)을 놓쳐 오탐하지 않기 위해서다.
+    """
+
+    path: Path
+    services: dict[str, dict[str, Any]] = field(default_factory=dict)
+    override: Path | None = None
+    error: str | None = None
+
+    @property
+    def directory(self) -> Path:
+        return self.path.parent
+
+    @property
+    def label(self) -> str:
+        """Finding.target 표시용 (현재 디렉터리 기준 상대 경로)."""
+        try:
+            shown = str(self.path.resolve().relative_to(Path.cwd().resolve()))
+        except ValueError:
+            shown = str(self.path)
+        return f"{shown} (+ {self.override.name})" if self.override else shown
+
+
+@dataclass
 class ScanContext:
     """한 번의 진단에서 수집된 모든 데이터."""
 
@@ -73,5 +100,13 @@ class ScanContext:
     scanned_at: datetime
     categories: set[str]
     daemon: DaemonConfig | None = None
+    compose: list[ComposeProject] | None = None  # None = 수집하지 않음
     # 수집 과정에서 사용자에게 알려야 할 안내 (예: daemon.json을 찾지 못함)
     notices: list[str] = field(default_factory=list)
+    # 수집 실패 (예: compose YAML 문법 오류) — 해당 대상은 점검되지 않았음을 강조해서 보여준다
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def compose_projects(self) -> list[ComposeProject]:
+        """정상적으로 파싱된 compose 프로젝트."""
+        return [p for p in self.compose or [] if p.error is None]

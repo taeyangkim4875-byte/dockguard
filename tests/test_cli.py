@@ -69,6 +69,58 @@ def test_scan_auto_detect_without_daemon_json(monkeypatch):
     assert "Docker 기본값 기준으로 점검" in result.output
 
 
+def test_scan_compose_file(compose_fixture):
+    result = _scan("--compose", str(compose_fixture("insecure.yml")))
+    assert result.exit_code == 0, result.output
+    assert "COMPOSE-001" in result.output and "COMPOSE-004" in result.output
+    assert "compose" in result.output  # 점검 영역에 compose 포함
+
+
+def test_scan_compose_explain_shows_service_specific_example(compose_fixture):
+    result = _scan("-c", "compose", "-f", str(compose_fixture("insecure.yml")), "--explain")
+    assert result.exit_code == 0, result.output
+    assert "이 프로젝트에 적용할 수정 예시" in result.output
+    assert "admin123" not in result.output  # 시크릿 값은 절대 출력하지 않는다
+
+
+def test_scan_compose_auto_discovery(tmp_path, monkeypatch, compose_fixture):
+    project = tmp_path / "app"
+    project.mkdir()
+    shutil.copy(compose_fixture("insecure.yml"), project / "docker-compose.yml")
+    monkeypatch.chdir(tmp_path)
+    result = _scan("-c", "compose")
+    assert result.exit_code == 0, result.output
+    assert "COMPOSE-001" in result.output
+
+
+def test_scan_compose_parse_error_is_reported(compose_fixture):
+    result = _scan("-c", "compose", "-f", str(compose_fixture("broken.yml")))
+    assert result.exit_code == 0, result.output
+    assert "점검하지 못한 대상" in result.output
+    assert "YAML 문법 오류" in result.output
+    assert "발견된 취약점이 없습니다" not in result.output
+
+
+def test_scan_compose_nothing_found(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = _scan("-c", "compose")
+    assert result.exit_code == 0, result.output
+    assert "compose 파일을 찾지 못했습니다" in result.output
+    assert "점검 결과가 없습니다" in result.output
+
+
+def test_scan_missing_compose_path(tmp_path):
+    result = _scan("--compose", str(tmp_path / "nope.yml"))
+    assert result.exit_code == 2
+    assert "찾을 수 없습니다" in result.output
+
+
+def test_fix_compose_explains_no_autofix():
+    result = runner.invoke(app, ["fix", "compose"], env={"COLUMNS": "160"})
+    assert result.exit_code == 0
+    assert "자동으로 수정하지 않습니다" in result.output
+
+
 def test_scan_category_without_rules_is_friendly():
     result = _scan("--category", "network")
     assert result.exit_code == 0, result.output

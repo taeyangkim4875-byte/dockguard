@@ -15,7 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from dockguard.core.context import DaemonConfig, FileStat, ScanContext
+from dockguard.core.compose_loader import DEFAULT_SEARCH_DEPTH, collect_compose_projects
+from dockguard.core.context import ComposeProject, DaemonConfig, FileStat, ScanContext
 from dockguard.core.models import Category
 
 # 리눅스 표준 경로. 파일이 어디에도 없을 때 "여기에 만들면 된다"는 안내에도 쓴다.
@@ -100,12 +101,16 @@ def load_daemon_config(path: Path, rootless: bool = False) -> DaemonConfig:
 def collect(
     categories: Iterable[str] | None = None,
     daemon_config_path: Path | None = None,
+    compose_paths: list[Path] | None = None,
+    search_root: Path | None = None,
 ) -> ScanContext:
     """요청된 카테고리에 필요한 데이터만 수집한다.
 
     Args:
         categories: 점검할 카테고리. None이면 전체.
         daemon_config_path: daemon.json 경로를 직접 지정 (None이면 자동 탐색).
+        compose_paths: compose 파일 또는 폴더 (None이면 search_root에서 자동 탐색).
+        search_root: compose 자동 탐색 시작 폴더 (기본: 현재 디렉터리).
     """
     selected = set(categories) if categories else {c.value for c in Category}
     context = ScanContext(
@@ -114,17 +119,36 @@ def collect(
         categories=selected,
     )
 
-    if Category.DAEMON.value in selected:
-        context.daemon = _collect_daemon(context, daemon_config_path)
+    daemon_selected = Category.DAEMON.value in selected
+    compose_selected = Category.COMPOSE.value in selected
+    # compose 룰도 daemon 설정을 참고한다 (예: 데몬 기본 no-new-privileges, userns-remap)
+    if daemon_selected or compose_selected:
+        context.daemon = _collect_daemon(context, daemon_config_path, announce=daemon_selected)
+    if compose_selected:
+        context.compose = _collect_compose(context, compose_paths, search_root or Path.cwd())
 
     return context
+
+
+def _collect_compose(context: ScanContext, targets: list[Path] | None, search_root: Path) -> list[ComposeProject]:
+    projects = collect_compose_projects(targets, search_root)
+    if not projects:
+        where = "지정한 폴더" if targets else "현재 디렉터리"
+        context.notices.append(
+            f"{where}와 하위 {DEFAULT_SEARCH_DEPTH}단계에서 compose 파일을 찾지 못했습니다. "
+            "(--compose 로 파일이나 폴더를 지정하세요)"
+        )
+    for project in projects:
+        if project.error is not None:
+            context.errors.append(f"compose 파일을 점검하지 못했습니다 — {project.label}: {project.error}")
+    return projects
 
 
 def _is_rootless_path(path: Path) -> bool:
     return sys.platform.startswith("linux") and path == rootless_daemon_config()
 
 
-def _collect_daemon(context: ScanContext, explicit_path: Path | None) -> DaemonConfig:
+def _collect_daemon(context: ScanContext, explicit_path: Path | None, announce: bool = True) -> DaemonConfig:
     if explicit_path is not None:
         return load_daemon_config(explicit_path, rootless=_is_rootless_path(explicit_path))
 
@@ -134,8 +158,9 @@ def _collect_daemon(context: ScanContext, explicit_path: Path | None) -> DaemonC
 
     # 어디에도 없으면 표준 경로 기준으로 "파일 없음" 처리 → 룰은 Docker 기본값으로 판단
     fallback = daemon_config_candidates()[0]
-    context.notices.append(
-        "daemon.json을 찾지 못했습니다. Docker 기본값 기준으로 점검합니다. "
-        "(다른 위치에 있다면 --daemon-config 로 지정하세요)"
-    )
+    if announce:
+        context.notices.append(
+            "daemon.json을 찾지 못했습니다. Docker 기본값 기준으로 점검합니다. "
+            "(다른 위치에 있다면 --daemon-config 로 지정하세요)"
+        )
     return DaemonConfig(path=fallback, exists=False)

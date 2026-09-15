@@ -59,6 +59,9 @@ class TerminalReporter:
         c = self.console
         c.print(self._header(context))
         c.print(self._score_panel(result, score))
+        if context.errors:
+            body = Text("\n".join(f"• {e}" for e in context.errors))
+            c.print(Panel(body, title="점검하지 못한 대상", title_align="left", border_style="red"))
         if context.notices:
             notices = Table.grid(padding=(0, 1))
             notices.add_column(no_wrap=True)
@@ -70,13 +73,16 @@ class TerminalReporter:
 
         findings = result.sorted_findings()
         targets = {f.target for f in findings}
-        if len(targets) == 1:
+        if not findings:
+            c.print(Text("  점검 결과가 없습니다 (점검 대상을 찾지 못했습니다).", style="yellow"))
+        elif len(targets) == 1:
             target_line = Table.grid(padding=(0, 1))
             target_line.add_column(no_wrap=True, style="bold")
             target_line.add_column(overflow="fold")
             target_line.add_row("  대상", next(iter(targets)))
             c.print(target_line)
-        c.print(self._findings_table(findings, show_target=len(targets) > 1))
+        if findings:
+            c.print(self._findings_table(findings, show_target=len(targets) > 1))
 
         if result.errors:
             c.print(self._errors_panel(result))
@@ -96,7 +102,7 @@ class TerminalReporter:
                     (" 옵션으로 확인하세요.", ""),
                 )
             )
-        if not problems and not result.errors:
+        if not problems and not result.errors and not context.errors and findings:
             c.print(Text("  발견된 취약점이 없습니다. 잘 관리되고 있어요!", style="bold green"))
         c.print()
 
