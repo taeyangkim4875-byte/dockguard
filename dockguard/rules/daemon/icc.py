@@ -80,6 +80,10 @@ sudo systemctl restart docker
 userland-proxy 설정에 따라 동작이 달라져 재기동 후 갑자기 끊길 수 있다. 같은 네트워크에 두고 \
 서비스 이름(`rabbitmq`)으로 접속하는 것이 안전하다.
 - 레거시 `--link` 옵션으로 개별 허용도 가능하지만 deprecated 기능이므로 권장하지 않는다.
+- **`icc: false`만으로 완전히 격리되지는 않는다.** 이 설정은 IP 트래픽을 막는 iptables 규칙이라 IP가 아닌 \
+raw 이더넷 프레임(L2)은 막지 못한다. 컨테이너에 기본으로 주어지는 `NET_RAW` capability가 있으면 같은 bridge의 \
+다른 컨테이너에 ARP 스푸핑 같은 L2 공격을 시도할 수 있다. 목적별 커스텀 네트워크로 나누고, raw 소켓이 필요 없는 \
+컨테이너에는 `cap_drop: [NET_RAW]`(또는 `ALL`)를 함께 적용하라 (COMPOSE-010).
 
 > **실제 사례:** dockguard의 제작 배경이 된 사고에서, 정전으로 서버가 재부팅되자 `icc: false`와 \
 네트워크 분리 때문에 백엔드가 RabbitMQ에 접속하지 못해 메시지 소비가 멈췄다. 설정 자체는 \

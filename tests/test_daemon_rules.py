@@ -140,6 +140,7 @@ class TestBooleanRules:
         finding = _single(IccRule(), _ctx(context_factory))
         assert "커스텀 네트워크" in finding.tradeoff
         assert "NET-001" in finding.tradeoff
+        assert "NET_RAW" in finding.tradeoff  # icc만으로는 L2(raw 이더넷) 트래픽을 막지 못한다는 한계
 
     def test_no_new_privileges_unset_fails_high(self, context_factory):
         finding = _single(NoNewPrivilegesRule(), _ctx(context_factory, {"icc": False}))

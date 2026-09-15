@@ -52,6 +52,11 @@ Docker는 컨테이너를 만들 때 가상 이더넷 쌍(veth)을 만들어 한
 `networks:`)는 영향을 받지 않으며, 같은 커스텀 네트워크 안에서는 항상 통신이 허용된다. 커스텀 네트워크마다 따로 막고 싶다면 \
 네트워크 옵션 `com.docker.network.bridge.enable_icc=false`를 쓴다.
 
+또 하나의 한계: iptables 규칙은 **IP 패킷**을 걸러낼 뿐, IP가 아닌 raw 이더넷 프레임(L2)은 막지 못한다. Docker가 컨테이너에 \
+기본으로 주는 `NET_RAW` capability가 있으면, `icc: false` 상태에서도 같은 bridge의 컨테이너에 ARP 스푸핑 같은 L2 공격을 \
+시도할 수 있다. 이 문제는 docker-bench-security 저장소에서도 "icc를 끄라는 권고가 정말 의미가 있나"라는 논의로 제기된 적이 있다. \
+icc는 여러 겹의 방어 중 한 겹일 뿐이다.
+
 기본 bridge와 커스텀 네트워크의 차이도 함께 알아 두자.
 
 | | 기본 bridge (`docker0`) | 커스텀 bridge 네트워크 |
@@ -71,6 +76,7 @@ Docker는 컨테이너를 만들 때 가상 이더넷 쌍(veth)을 만들어 한
 - 기본 bridge는 쓰지 않는다. 그 위에 아무것도 없게 만든 뒤 `icc: false`로 잠가 두면, 실수로 기본 bridge에 붙은 컨테이너가 \
 다른 컨테이너를 공격하는 발판이 되지 않는다.
 - 외부 인터넷이 필요 없는 백엔드 네트워크는 compose에서 `internal: true`로 만들어 아웃바운드도 막는다.
+- raw 소켓이 필요 없는 컨테이너는 `cap_drop: [NET_RAW]`로 L2 공격 경로까지 닫는다 (→ `dockguard learn capabilities`).
 - `icc: false`를 적용하기 **전에** 서비스 간 의존성을 선언하고 dockguard로 검증한다 (`dockguard scan --deps`).""",
         real_world="""\
 dockguard의 제작자는 RabbitMQ 보안 작업 중 정전으로 서버가 재부팅된 뒤, `icc: false`와 네트워크 분리 때문에 백엔드가 \
