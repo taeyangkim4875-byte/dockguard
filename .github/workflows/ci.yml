@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -22,8 +22,8 @@ jobs:
           - os: windows-latest
             python: "3.12"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -39,8 +39,8 @@ jobs:
       COLUMNS: "140"
       DEPS: examples/rabbitmq-incident/dependencies.yaml
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -88,7 +88,7 @@ jobs:
       - name: 전체 진단 HTML 리포트
         run: dockguard scan --deps "$DEPS" -o dockguard-report.html
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dockguard-e2e-reports
           path: |
