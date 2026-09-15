@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dockguard"
+version = "0.1.0"
+description = "Docker 호스트 통합 보안 진단 도구 — daemon.json, docker-compose, 네트워크 의존성을 점검하고 부작용까지 설명합니다."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Taeyang Kim" }]
+keywords = ["docker", "security", "cis-benchmark", "docker-compose", "devsecops"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "typer>=0.9",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+dockguard = "dockguard.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dockguard*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

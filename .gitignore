@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 가상환경
+.venv/
+venv/
+
+# 테스트 / 커버리지
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# dockguard 산출물
+report*.html
+*.bak.*
+
+# 로컬 의존성 정의 (예시 파일은 커밋)
+config/dependencies.yaml
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,6 @@
+{
+  "icc": true,
+  "no-new-privileges": false,
+  "live-restore": false,
+  "insecure-registries": ["10.0.0.5:5000"]
+}
