@@ -125,13 +125,13 @@ def test_scan_category_without_rules_is_friendly(monkeypatch):
     from dockguard import cli
 
     class NoRules:
-        def __init__(self, categories=None):
+        def __init__(self, categories=None, ruleset=None):
             self.rules = []
 
     monkeypatch.setattr(cli, "ScanEngine", NoRules)
     result = _scan("--category", "network")
     assert result.exit_code == 0, result.output
-    assert "등록된 룰이 없습니다" in result.output
+    assert "실행할 룰이 없습니다" in result.output
 
 
 # ============================================================================ 네트워크 / 의존성 (Phase 4)

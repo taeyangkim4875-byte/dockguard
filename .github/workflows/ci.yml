@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: 설치
+        run: python -m pip install -e ".[dev]"
+      - name: 테스트 (커버리지 90% 미만이면 실패)
+        run: python -m pytest --cov=dockguard --cov-report=term-missing --cov-fail-under=90
+
+  e2e-docker:
+    name: 실제 Docker로 정전 사고 재현 (E2E)
+    runs-on: ubuntu-latest
+    env:
+      COLUMNS: "140"
+      DEPS: examples/rabbitmq-incident/dependencies.yaml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 설치 (일반 설치 — 서버와 같은 방식)
+        run: python -m pip install ".[docker]"
+
+      - name: 사고 상태 재현
+        run: bash examples/rabbitmq-incident/reproduce.sh
+
+      - name: 진단 — Docker SDK 경로
+        run: |
+          dockguard scan -c network --deps "$DEPS" -o sdk.json
+          python tests/e2e/check_incident.py sdk.json --expect broken --source "Docker SDK"
+
+      - name: 진단 — docker CLI 폴백 경로 (SDK 제거)
+        run: |
+          python -m pip uninstall -y docker
+          dockguard scan -c network --deps "$DEPS" -o cli.json
+          python tests/e2e/check_incident.py cli.json --expect broken --source "docker CLI"
+
+      - name: 터미널 출력 (로그 확인용)
+        run: dockguard scan -c network --deps "$DEPS" --explain
+
+      - name: --fail-on critical은 종료 코드 1이어야 함
+        run: |
+          set +e
+          dockguard scan -c network --deps "$DEPS" --fail-on critical > /dev/null
+          code=$?
+          echo "종료 코드: $code"
+          test "$code" -eq 1
+
+      - name: 복구 후 재진단 — 모든 의존성 통과
+        run: |
+          docker network connect messaging_mq-net backend-container
+          docker start messaging-redis-1
+          dockguard scan -c network --deps "$DEPS" -o recovered.json
+          python tests/e2e/check_incident.py recovered.json --expect recovered
+
+      - name: daemon 점검 · 수정 미리보기 (러너의 실제 /etc/docker/daemon.json)
+        run: |
+          cat /etc/docker/daemon.json || echo "(daemon.json 없음)"
+          dockguard scan -c daemon
+          dockguard fix daemon
+
+      - name: 전체 진단 HTML 리포트
+        run: dockguard scan --deps "$DEPS" -o dockguard-report.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dockguard-e2e-reports
+          path: |
+            dockguard-report.html
+            *.json
+
+      - name: 정리
+        if: always()
+        run: bash examples/rabbitmq-incident/cleanup.sh

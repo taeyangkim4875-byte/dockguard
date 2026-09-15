@@ -48,6 +48,9 @@ def build_report(context: ScanContext, result: ScanResult, score: Score) -> dict
                 else None
             ),
             "dependency_file": str(context.dependency_file) if context.dependency_file else None,
+            "ruleset": (
+                {"path": str(context.ruleset_path), "summary": context.ruleset_summary} if context.ruleset_path else None
+            ),
         },
         "notices": list(context.notices),
         "collection_errors": list(context.errors),

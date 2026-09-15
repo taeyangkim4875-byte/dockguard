@@ -246,6 +246,9 @@ class ScanContext:
     docker: DockerRuntime | None = None  # None = 수집하지 않음
     dependencies: list[Dependency] = field(default_factory=list)
     dependency_file: Path | None = None
+    # 적용된 룰셋 (리포트에 "무엇을 껐는지" 표시하기 위함)
+    ruleset_path: Path | None = None
+    ruleset_summary: str = ""
     # 수집 과정에서 사용자에게 알려야 할 안내 (예: daemon.json을 찾지 못함)
     notices: list[str] = field(default_factory=list)
     # 수집 실패 (예: compose YAML 문법 오류) — 해당 대상은 점검되지 않았음을 강조해서 보여준다

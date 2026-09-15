@@ -1,0 +1,19 @@
+# dockguard 룰셋 예시 — 조직 상황에 맞게 룰을 끄거나 심각도를 조정합니다.
+#
+# 사용법:
+#   cp config/ruleset.example.yaml config/ruleset.yaml     # 현재 디렉터리 기준 자동 탐색
+#   sudo cp config/ruleset.example.yaml /etc/dockguard/ruleset.yaml   # 서버 전역
+#   dockguard scan --ruleset ./my-ruleset.yaml              # 직접 지정
+#
+# 끈 룰과 조정한 심각도는 모든 리포트 상단에 표시됩니다 — 예외가 조용히 숨지 않도록.
+# 룰 ID 목록: dockguard rules
+
+# 점검하지 않을 룰. 왜 끄는지 주석으로 꼭 남기세요.
+disabled:
+  # - COMPOSE-006   # 레거시 앱이 루트 FS에 로그를 씀 — 로그 볼륨 분리 후 다시 켤 것
+  # - COMPOSE-011   # 사내 레지스트리가 태그 대신 빌드 번호로 관리됨
+
+# 심각도 조정 (critical / high / medium / low / info). 점수 계산에도 반영됩니다.
+severity:
+  # COMPOSE-008: low      # 성능 때문에 host 네트워크를 쓰는 GPU 서버
+  # DAEMON-004: medium    # 다운타임에 민감한 서비스라 live-restore를 더 중요하게 봄

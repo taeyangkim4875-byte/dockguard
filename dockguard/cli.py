@@ -16,7 +16,10 @@ from dockguard import __version__
 from dockguard.core.collector import collect
 from dockguard.core.engine import ScanEngine
 from dockguard.core.models import Category, Severity, Status
+from dockguard.core.rule import registered_rule_classes
+from dockguard.core.ruleset import Ruleset, RulesetError, find_ruleset_file, load_ruleset
 from dockguard.core.scoring import calculate_score
+from dockguard.rules import load_all_rules
 from dockguard.knowledge.explanations import EXPLANATIONS, get_topic, suggest_topics
 from dockguard.remediators.daemon_remediator import RemediationError, apply_plan, build_plan, next_steps
 from dockguard.reporters.html import render_html
@@ -127,6 +130,14 @@ def scan(
             case_sensitive=False,
         ),
     ] = None,
+    ruleset_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--ruleset",
+            help="룰을 끄거나 심각도를 조정하는 파일 (config/ruleset.example.yaml 참고). 기본: ./ruleset.yaml, ./config/ruleset.yaml, /etc/dockguard/ruleset.yaml",
+            dir_okay=False,
+        ),
+    ] = None,
 ) -> None:
     """Docker 호스트의 보안 설정을 진단합니다."""
     fmt = resolve_format(output_format, output)
@@ -141,7 +152,12 @@ def scan(
 
     missing_files = [
         (label, path)
-        for label, path in (("daemon.json", daemon_config), ("의존성 파일", deps), ("스냅샷 파일", docker_snapshot))
+        for label, path in (
+            ("daemon.json", daemon_config),
+            ("의존성 파일", deps),
+            ("스냅샷 파일", docker_snapshot),
+            ("룰셋 파일", ruleset_path),
+        )
         if path is not None and not path.is_file()
     ]
     for label, path in missing_files:
@@ -152,11 +168,12 @@ def scan(
     if missing_files or missing:
         raise typer.Exit(code=2)
 
-    engine = ScanEngine(categories=categories)
+    ruleset = _load_ruleset(console, ruleset_path)
+    engine = ScanEngine(categories=categories, ruleset=ruleset)
     if not engine.rules:
         console.print(
-            f"[yellow]선택한 영역({', '.join(sorted(categories))})에 등록된 룰이 없습니다.[/] "
-            "[dim]`--category daemon`으로 다시 시도해 보세요.[/]"
+            f"[yellow]선택한 영역({', '.join(sorted(categories))})에 실행할 룰이 없습니다.[/] "
+            "[dim]`--category daemon`으로 다시 시도하거나 룰셋의 disabled 목록을 확인하세요.[/]"
         )
         raise typer.Exit(code=0)
 
@@ -170,6 +187,10 @@ def scan(
         )
         result = engine.run(context)
         score = calculate_score(result.findings)
+    if ruleset.path is not None:
+        context.ruleset_path = ruleset.path
+        context.notices.insert(0, f"룰셋 적용 ({ruleset.path}) — {ruleset.summary()}")
+        context.ruleset_summary = ruleset.summary()
 
     _emit_report(console, fmt, output, explain, context, result, score)
 
@@ -184,6 +205,19 @@ def scan(
                 f"취약 항목 {len(blocking)}건 ({ids}) → 종료 코드 1"
             )
             raise typer.Exit(code=1)
+
+
+def _load_ruleset(console: Console, explicit: Path | None) -> Ruleset:
+    """룰셋 파일을 찾아 읽는다. 형식이 틀리면 조용히 무시하지 않고 종료한다 (끄려던 룰이 켜진 채 점수가 나오면 안 된다)."""
+    path = explicit or find_ruleset_file(Path.cwd())
+    if path is None:
+        return Ruleset()
+    load_all_rules()
+    try:
+        return load_ruleset(path, (cls.id for cls in registered_rule_classes()))
+    except RulesetError as exc:
+        console.print(f"[bold red]룰셋 파일 오류[/] ({path}): {exc}")
+        raise typer.Exit(code=2) from exc
 
 
 def resolve_format(explicit: OutputFormat | None, output: Path | None) -> OutputFormat:

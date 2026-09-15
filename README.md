@@ -2,8 +2,8 @@
 
 **Docker 호스트 통합 보안 진단 도구** — "무엇이 위험한지"뿐 아니라 **"고치면 무엇이 깨지는지"까지** 알려줍니다.
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-817%20passed-brightgreen)
+[![CI](https://github.com/taeyangkim4875-byte/dockguard/actions/workflows/ci.yml/badge.svg)](https://github.com/taeyangkim4875-byte/dockguard/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%20~%203.13-blue)
 ![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
 ![CIS](https://img.shields.io/badge/CIS%20Docker%20Benchmark-v1.6.0-orange)
 
@@ -18,8 +18,13 @@ dockguard learn icc                 # 보안 개념 학습 (11개 주제)
 dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테이너 네트워크 격리를 한 번에 점검하고,
 각 취약점마다 **왜 위험한지 / 어떻게 고치는지 / 고치면 어떤 부작용이 있는지**를 한글로 설명하는 CLI 도구입니다.
 
-> **개발 현황** — Phase 5 완료: 룰 26종(daemon 10 · compose 12 · **네트워크/서비스 의존성 4**), 안전한 자동 수정,
-> 터미널 · HTML · JSON 리포트, `dockguard learn` 학습 기능. 남은 작업은 [로드맵](#로드맵) 참고.
+![정전 후 서비스 의존성 진단 결과](docs/images/terminal-network.png)
+
+<p align="center"><sub>정전으로 재부팅된 서버 진단 — 백엔드와 RabbitMQ가 공유하는 네트워크가 없고, Redis는 재시작 정책이 없어 올라오지 않았다는 것을 한 번에 찾아냅니다.<br>
+<b><a href="docs/demo.md">▶ 이 시나리오를 처음부터 따라 해 보기 (docs/demo.md)</a></b></sub></p>
+
+**룰 26종**(daemon 10 · compose 12 · 네트워크/서비스 의존성 4) · 안전한 자동 수정 · 터미널 / HTML / JSON 리포트 · 보안 학습 11개 주제 ·
+테스트 834개 + 실제 Docker E2E(CI)
 
 ---
 
@@ -375,6 +380,7 @@ services:
 ### 5. 서비스 의존성 검증 — 정전 후 "왜 연결이 안 되지?"를 즉시 찾기
 
 dockguard의 핵심 기능입니다. 서비스 간 통신 의존성을 선언해 두면, 실제 Docker 상태와 대조해 **통신이 불가능한 조합**을 찾아냅니다.
+증상 → 진단 → 복구 → 재발 방지까지 이어지는 전체 흐름은 **[데모 문서](docs/demo.md)**에 있습니다.
 
 ```bash
 cp config/dependencies.example.yaml config/dependencies.yaml   # 의존성 선언 (자동 탐색 위치)
@@ -447,7 +453,9 @@ dockguard scan -o scan.txt --explain   # 색상 없는 텍스트 리포트
 영역별 카드에는 현재값 → 권장값이 설정 diff처럼 표시되며, 부작용은 "고치면 생기는 일" 박스로 강조됩니다. 명령어 블록에는 복사 버튼이 있고,
 라이트/다크 테마와 인쇄를 지원합니다.
 
-> 🖼️ *스크린샷 자리 — `docs/images/report.png` (Phase 6에서 추가 예정)*
+![HTML 리포트](docs/images/report.png)
+
+<sub>샘플 파일: [docs/sample-report.html](docs/sample-report.html) — 내려받아 브라우저로 열어 보세요.</sub>
 
 **JSON 리포트**는 CI/CD · 다른 도구 연동용입니다. `schema_version`으로 형식을 관리하고, 각 항목에 설명 원문과 `learn_topic`을 담습니다.
 
@@ -497,7 +505,26 @@ dockguard learn ufw             # 별칭으로 (port-exposure)
 
 `--explain`과 HTML 리포트의 각 항목에도 관련 학습 주제(`dockguard learn <주제>`)가 표시됩니다.
 
-### 8. 룰 목록 보기
+### 8. 조직에 맞게 조정하기 — 룰셋
+
+모든 권고가 모든 환경에 맞지는 않습니다. 당장 고칠 수 없는 항목은 **이유를 남기고** 끄거나 심각도를 조정합니다.
+끈 룰은 모든 리포트 상단에 표시되어, 예외가 조용히 숨지 않습니다.
+
+```yaml
+# config/ruleset.yaml (또는 ./ruleset.yaml, /etc/dockguard/ruleset.yaml — 자동 탐색)
+disabled:
+  - COMPOSE-006   # 레거시 앱이 루트 FS에 로그를 씀 — 로그 볼륨 분리 후 다시 켤 것
+severity:
+  COMPOSE-008: low   # 성능 때문에 host 네트워크를 쓰는 GPU 서버
+```
+
+```bash
+dockguard scan --ruleset ./my-ruleset.yaml
+```
+
+없는 룰 ID나 잘못된 심각도는 오타일 가능성이 높아, 무시하지 않고 **오류로 멈춥니다** (끄려던 룰이 켜진 채 점수가 나오면 안 되기 때문).
+
+### 9. 룰 목록 보기
 
 ```bash
 dockguard rules
@@ -520,6 +547,7 @@ dockguard rules
 | `-o`, `--output PATH` | 리포트를 파일로 저장. 확장자 `.html` · `.json`이면 그 형식, 그 외는 색상 없는 텍스트 |
 | `--format [terminal\|json\|html]` | 출력 형식 명시. `json`을 `-o` 없이 쓰면 표준 출력으로, `html`을 `-o` 없이 쓰면 `dockguard-<호스트>-<시각>.html` |
 | `--fail-on [critical\|high\|medium\|low]` | 이 심각도 이상 취약 항목이 있으면 종료 코드 1 (메시지는 stderr) |
+| `--ruleset PATH` | 룰 끄기 · 심각도 조정 파일. 기본: `./ruleset.yaml`, `./config/ruleset.yaml`, `/etc/dockguard/ruleset.yaml` 자동 탐색 |
 
 ### `dockguard fix daemon`
 
@@ -732,7 +760,8 @@ dockguard/
 │   ├── compose_loader.py      # compose 탐색 · YAML 파싱 · override 병합
 │   ├── docker_runtime.py      # 실행 중인 Docker 수집 (SDK → CLI 폴백, 스냅샷), 오류 안내
 │   ├── dependencies.py        # dependencies.yaml 로드 · compose depends_on 추론
-│   ├── engine.py              # 룰 실행 (카테고리 필터, 예외 격리)
+│   ├── engine.py              # 룰 실행 (카테고리 필터, 룰셋 적용, 예외 격리)
+│   ├── ruleset.py             # 룰 끄기 · 심각도 조정 (ruleset.yaml)
 │   └── scoring.py             # 점수 · 등급
 ├── rules/
 │   ├── __init__.py            # 하위 모듈 재귀 자동 import
@@ -754,9 +783,15 @@ dockguard/
     ├── compose_facts.py       # 위험 capability, 시크릿 이름 규칙 등 보안 지식 상수
     └── network_facts.py       # 외부 노출되면 안 되는 민감 포트 목록
 config/
-└── dependencies.example.yaml  # 서비스 의존성 선언 예시
+├── dependencies.example.yaml  # 서비스 의존성 선언 예시
+└── ruleset.example.yaml       # 룰셋 예시
 examples/
-└── rabbitmq-incident/         # 정전 사고 재현 (스냅샷 · 의존성 · daemon.json · compose)
+└── rabbitmq-incident/         # 정전 사고 재현 (스냅샷 · 의존성 · daemon.json · compose · reproduce.sh)
+docs/
+├── demo.md                    # 데모 시나리오: 정전 후 의존성 검증
+├── sample-report.html         # HTML 리포트 샘플
+└── images/                    # README 스크린샷 (scripts/make_screenshots.py로 생성)
+.github/workflows/ci.yml       # pytest 매트릭스 + 실제 Docker E2E
 ```
 
 ---
@@ -852,9 +887,17 @@ class HealthcheckRule(ComposeRule):
 pip install -e ".[dev]"
 pytest                                        # 전체 테스트
 pytest --cov=dockguard --cov-report=term-missing
+python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 · 샘플 리포트 재생성
 ```
 
-- **테스트 817개, 커버리지 98%** — 실제 Docker 없이 실행됩니다.
+**GitHub Actions CI**([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 모든 푸시와 PR에서 두 가지를 확인합니다.
+
+| 잡 | 내용 |
+|----|------|
+| `pytest` | Ubuntu × Python 3.10 · 3.11 · 3.12 · 3.13 + Windows. 커버리지 90% 미만이면 실패. 리눅스 전용 코드(POSIX 파일 권한 등)도 여기서 검증 |
+| `e2e-docker` | **러너의 실제 Docker에서 정전 사고를 재현**(`examples/rabbitmq-incident/reproduce.sh`)하고, Docker SDK 경로와 docker CLI 폴백 경로 모두로 NET-001 · NET-004가 제대로 잡히는지, 복구 후에는 모두 통과하는지, `--fail-on`이 종료 코드 1을 내는지 검증. 생성한 HTML/JSON 리포트는 아티팩트로 업로드 |
+
+- **테스트 834개, 커버리지 98%** — 단위 테스트는 실제 Docker 없이 실행됩니다.
 - 각 룰마다 **통과 · 취약 · 파일 없음(기본값) · 파싱 실패 · 잘못된 타입** 케이스를 공통 테스트로 검사하고, 룰별 경계 조건을 따로 검사합니다.
 - compose 룰은 안전 · 취약 fixture 전체에 대한 공통 테스트와, 오탐 방지 로직(변수 참조, 이스케이프, 레지스트리 포트, 멀티 스테이지 Dockerfile 등)에 대한 경계 테스트를 갖추고 있습니다.
 - Remediator는 **백업 내용이 원본과 같은지, 검증 실패 시 원본과 디렉터리가 그대로인지, 적용 후 검증 실패 시 롤백되는지**를 테스트합니다.
@@ -876,9 +919,11 @@ pytest --cov=dockguard --cov-report=term-missing
 | `tests/test_engine.py` | 자동 등록 · 중복 ID 거부 · 카테고리 필터 · 예외 격리 |
 | `tests/test_cli.py` | scan · rules · fix 명령 통합 테스트 |
 | `tests/test_scoring.py` | 감점 · 하한 · 등급 경계값 |
+| `tests/test_ruleset.py` | 룰셋 형식 검증 · 룰 비활성화 · 심각도 조정의 점수 반영 · 리포트 표시 |
+| `tests/e2e/check_incident.py` | CI의 실제 Docker E2E 결과 검증 스크립트 |
 | `tests/fixtures/daemon/` | 안전 · 취약 · 빈 객체 · 깨진 JSON · 잘못된 타입 예시 |
 | `tests/fixtures/compose/` | 안전 · 취약(제작 배경 사고의 RabbitMQ 구성 재현) · 깨진 YAML 예시 |
-| `examples/rabbitmq-incident/` | 정전 후 서버 상태 스냅샷 — 테스트와 데모에 함께 사용 |
+| `examples/rabbitmq-incident/` | 정전 사고 재현 — 스냅샷(단위 테스트 · 오프라인 데모), `reproduce.sh`(실제 Docker 데모 · CI E2E) |
 
 > 테스트는 실제 Docker에 절대 연결하지 않습니다. 개발 PC나 CI 러너에 Docker가 떠 있어도 결과가 달라지지 않도록 conftest에서 수집 경로를 막아 둡니다.
 
@@ -907,4 +952,12 @@ pytest --cov=dockguard --cov-report=term-missing
 - [x] **Phase 3** — docker-compose 스캐너 (룰 12종, 자동 탐색 + override 병합, 서비스별 수정 예시)
 - [x] **Phase 4** — 네트워크 격리 + **서비스 의존성 통신 검증** (`--deps`, depends_on 추론), Docker SDK/CLI/스냅샷 수집
 - [x] **Phase 5** — HTML · JSON 리포트, `--fail-on`, `dockguard learn` 보안 학습 기능 (11개 주제)
-- [ ] **Phase 6** — GitHub Actions CI, 데모 시나리오(정전 후 의존성 검증 재현), 스크린샷
+- [x] **Phase 6** — GitHub Actions CI(실제 Docker E2E 포함), 룰셋, 데모 시나리오, 스크린샷
+
+**앞으로 해 볼 것**
+
+- `docker image inspect`로 이미지의 `USER`를 확인해 COMPOSE-002 오탐 줄이기
+- `dockerd` 실행 옵션 · systemd drop-in까지 읽어 daemon 룰의 실제 적용 상태 교차 확인 확대
+- compose `extends:` · `include:` 지원
+- 연결 문자열(`postgres://user:pass@...`) 안의 비밀번호 탐지
+- NET-001에서 대상 포트가 실제로 리스닝 중인지 확인 (컨테이너 네트워크 네임스페이스에서 연결 시도)
