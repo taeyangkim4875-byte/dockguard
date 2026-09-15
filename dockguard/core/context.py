@@ -189,6 +189,7 @@ class DockerRuntime:
     networks: list[NetworkInfo] = field(default_factory=list)
     security_options: list[str] = field(default_factory=list)  # docker info의 SecurityOptions
     server_version: str | None = None
+    host_name: str | None = None  # docker info의 Name (Docker가 도는 서버의 호스트 이름)
 
     @property
     def running_containers(self) -> list[ContainerInfo]:

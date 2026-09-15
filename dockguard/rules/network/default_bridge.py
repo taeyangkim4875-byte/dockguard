@@ -21,7 +21,7 @@ class DefaultBridgeRule(NetworkRule):
     recommended = "기본 bridge 대신 목적별 커스텀 네트워크"
 
     why = """\
-`--network`를 지정하지 않은 컨테이너는 모두 **기본 bridge(`docker0`)**에 붙는다. 기본 bridge는 Docker 초기의 \
+`--network`를 지정하지 않은 컨테이너는 모두 **기본 bridge(`docker0`)에** 붙는다. 기본 bridge는 Docker 초기의 \
 레거시 네트워크라 커스텀 네트워크와 동작이 다르다.
 
 - **서로 무관한 컨테이너가 한 네트워크에 섞인다.** `icc: true`(기본값)면 이 컨테이너들은 서로의 모든 포트로 \

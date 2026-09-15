@@ -118,6 +118,7 @@
     }
   ],
   "info": {
+    "Name": "prod-server-01",
     "ServerVersion": "27.3.1",
     "SecurityOptions": ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"]
   }

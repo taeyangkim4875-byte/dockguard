@@ -3,21 +3,23 @@
 **Docker 호스트 통합 보안 진단 도구** — "무엇이 위험한지"뿐 아니라 **"고치면 무엇이 깨지는지"까지** 알려줍니다.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-621%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-817%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
 ![CIS](https://img.shields.io/badge/CIS%20Docker%20Benchmark-v1.6.0-orange)
 
 ```bash
-dockguard scan                      # 진단 — daemon.json + 현재 폴더의 compose 파일, 점수와 취약 항목을 한눈에
+dockguard scan                      # 진단 — daemon.json · compose · 실행 중인 컨테이너 네트워크를 한 번에
 dockguard scan --explain            # 왜 위험한지 · 어떻게 고치는지 · 고치면 무엇이 깨지는지
-dockguard fix daemon                # 안전한 항목만 수정 미리보기 (파일은 건드리지 않음)
-dockguard fix daemon --apply        # 백업 → 검증 → 적용 → 실패 시 자동 롤백
+dockguard scan -o report.html       # 공유하기 좋은 HTML 리포트 (JSON도 가능)
+dockguard fix daemon --apply        # 안전한 항목만 백업 → 검증 → 적용 → 실패 시 자동 롤백
+dockguard learn icc                 # 보안 개념 학습 (11개 주제)
 ```
 
 dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테이너 네트워크 격리를 한 번에 점검하고,
 각 취약점마다 **왜 위험한지 / 어떻게 고치는지 / 고치면 어떤 부작용이 있는지**를 한글로 설명하는 CLI 도구입니다.
 
-> **개발 현황** — Phase 4 완료: daemon.json 10종(+ 안전한 자동 수정) · docker-compose 12종 · **네트워크/서비스 의존성 4종**, 총 26개 룰. HTML 리포트 · 학습 기능은 [로드맵](#로드맵) 참고.
+> **개발 현황** — Phase 5 완료: 룰 26종(daemon 10 · compose 12 · **네트워크/서비스 의존성 4**), 안전한 자동 수정,
+> 터미널 · HTML · JSON 리포트, `dockguard learn` 학습 기능. 남은 작업은 [로드맵](#로드맵) 참고.
 
 ---
 
@@ -26,6 +28,7 @@ dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테�
 - [왜 만들었나](#왜-만들었나)
 - [기존 도구와 무엇이 다른가](#기존-도구와-무엇이-다른가)
 - [설치](#설치)
+- [서버에서 실행하기](#서버에서-실행하기)
 - [빠른 시작](#빠른-시작)
 - [명령어 레퍼런스](#명령어-레퍼런스)
 - [점검 항목](#점검-항목)
@@ -101,24 +104,80 @@ dockguard를 만들기 전에 널리 쓰이는 도구들을 먼저 살펴봤습�
 
 **요구 사항**: Python 3.10 이상. 점검 대상은 Linux Docker 호스트이며, macOS · Windows(Docker Desktop)에서도 동작합니다.
 
+| 배포판 | 기본 Python | 준비 |
+|--------|-------------|------|
+| Ubuntu 22.04 / 24.04 | 3.10 / 3.12 | `sudo apt install python3-venv git` |
+| Debian 12 | 3.11 | `sudo apt install python3-venv git` |
+| Rocky / RHEL 9 | 3.9 | `sudo dnf install python3.11 git` 후 아래 명령의 `python3`를 `python3.11`로 |
+| Ubuntu 20.04 | 3.8 | deadsnakes PPA 등으로 3.10 이상 설치 필요 |
+
+### 리눅스 서버에 설치 (권장)
+
+`/opt`에 설치하고 `/usr/local/bin`에 링크를 걸면, **어느 디렉터리에서든 `sudo dockguard`로** 실행할 수 있습니다.
+(`sudo`는 보안상 PATH를 제한하는데, `/usr/local/bin`은 그 안에 포함됩니다.)
+
 ```bash
-git clone https://github.com/taeyangkim4875-byte/dockguard.git
-cd dockguard
+sudo git clone https://github.com/taeyangkim4875-byte/dockguard.git /opt/dockguard
+sudo python3 -m venv /opt/dockguard/.venv
+sudo /opt/dockguard/.venv/bin/pip install "/opt/dockguard[docker]"
+sudo ln -sf /opt/dockguard/.venv/bin/dockguard /usr/local/bin/dockguard
 
-python3 -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-
-pip install -e .                     # 사용만 할 경우 (Docker 상태는 docker CLI로 수집)
-pip install -e ".[docker]"           # Docker SDK for Python도 함께 설치 (선택)
-pip install -e ".[dev]"              # 테스트까지 돌릴 경우
+dockguard --version
 ```
 
-> 네트워크 점검(NET-*)은 Docker 소켓에 접근해야 하므로 보통 `sudo`가 필요합니다. 권한이 없으면 크래시 없이 이유와 해결 방법을 알려주고 해당 점검만 건너뜁니다.
+업데이트는 `sudo git -C /opt/dockguard pull && sudo /opt/dockguard/.venv/bin/pip install "/opt/dockguard[docker]"`.
+`[docker]`는 Docker SDK for Python을 함께 설치하는 옵션이며, 빼도 `docker` 명령으로 자동 전환해 동작합니다.
 
-설치하면 `dockguard` 명령이 등록됩니다. `python -m dockguard`로도 실행할 수 있습니다.
+### 개발용 설치
 
-> `/etc/docker/daemon.json`은 보통 누구나 읽을 수 있어서 `scan`에는 sudo가 필요 없습니다.
-> `fix --apply`로 파일을 수정할 때는 sudo가 필요합니다: `sudo .venv/bin/dockguard fix daemon --apply`
+```bash
+git clone https://github.com/taeyangkim4875-byte/dockguard.git && cd dockguard
+python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+pytest
+```
+
+---
+
+## 서버에서 실행하기
+
+dockguard는 **어느 디렉터리에서 실행해도 되는 명령어**입니다. 다만 점검 대상마다 찾는 위치가 다르니 아래 표를 참고하세요.
+
+| 점검 대상 | 어디서 찾나 | 실행 위치 영향 |
+|-----------|-------------|:--------------:|
+| `daemon.json` | `/etc/docker/daemon.json` (rootless는 `~/.config/docker/`) | 없음 |
+| 실행 중인 컨테이너 · 네트워크 | Docker 소켓 (`sudo` 필요) | 없음 |
+| **compose 파일** | **현재 디렉터리와 하위 3단계** 자동 탐색 | **있음** → `cd`하거나 `-f`로 지정 |
+| 의존성 선언 파일 | `./dependencies.yaml` → `./config/dependencies.yaml` → `/etc/dockguard/dependencies.yaml` | 서버 전역 위치에 두면 없음 |
+
+그래서 운영 서버에서는 보통 이렇게 씁니다.
+
+```bash
+# 한 번만: 서비스 의존성을 서버 전역 위치에 선언
+sudo mkdir -p /etc/dockguard
+sudo cp /opt/dockguard/config/dependencies.example.yaml /etc/dockguard/dependencies.yaml
+sudo vi /etc/dockguard/dependencies.yaml
+
+# 진단 — compose 파일이 모여 있는 곳을 지정
+sudo dockguard scan -f /srv                      # 또는: cd /srv && sudo dockguard scan
+sudo dockguard scan -f /srv --explain            # 상세 설명
+sudo dockguard scan -f /srv -o /root/dockguard-report.html   # HTML 리포트로 저장
+
+# 수정 (daemon.json만, 미리보기 → 적용)
+sudo dockguard fix daemon
+sudo dockguard fix daemon --apply
+```
+
+`sudo`가 필요한 이유: Docker 소켓 접근(NET-*)과 `daemon.json` 수정(`fix --apply`) 때문입니다. `sudo` 없이 실행해도 크래시하지 않고,
+권한이 필요한 점검만 이유와 함께 **건너뜀**으로 표시합니다.
+
+**정전 · 재부팅 직후 점검**이나 **정기 점검**에도 쓸 수 있습니다.
+
+```bash
+# /etc/cron.d/dockguard — 매일 새벽 HIGH 이상 취약점이 있으면 메일 (cron의 MAILTO)
+MAILTO=ops@example.com
+30 4 * * * root /usr/local/bin/dockguard scan -f /srv --fail-on high -o /var/log/dockguard/latest.html > /dev/null
+```
 
 ---
 
@@ -375,7 +434,70 @@ dockguard scan -c network --docker-snapshot snapshot.json --deps config/dependen
 > `jq`가 있다면 첫 줄을 `docker inspect $(docker ps -aq) | jq 'map(del(.Config.Env))'`로 바꿔 제거한 뒤 옮기세요.
 > 어느 쪽이든 스냅샷은 민감 정보로 다루고 분석 후 삭제하세요.
 
-### 6. 룰 목록 보기
+### 6. 리포트로 저장하기 — HTML · JSON
+
+```bash
+dockguard scan -o report.html          # 한 파일로 완결되는 HTML (외부 CSS·폰트·스크립트 없음 → 메일 첨부·오프라인 열람 가능)
+dockguard scan -o result.json          # 확장자로 형식 자동 결정
+dockguard scan --format json | jq '.score'       # 표준 출력으로 JSON (진행 표시는 stderr로 분리)
+dockguard scan -o scan.txt --explain   # 색상 없는 텍스트 리포트
+```
+
+**HTML 리포트**는 공유 · 보고용입니다. 상단에 점수 게이지와 심각도별 개수, **조치가 필요한 항목** 요약 표(클릭하면 해당 카드로 이동)가 있고,
+영역별 카드에는 현재값 → 권장값이 설정 diff처럼 표시되며, 부작용은 "고치면 생기는 일" 박스로 강조됩니다. 명령어 블록에는 복사 버튼이 있고,
+라이트/다크 테마와 인쇄를 지원합니다.
+
+> 🖼️ *스크린샷 자리 — `docs/images/report.png` (Phase 6에서 추가 예정)*
+
+**JSON 리포트**는 CI/CD · 다른 도구 연동용입니다. `schema_version`으로 형식을 관리하고, 각 항목에 설명 원문과 `learn_topic`을 담습니다.
+
+```json
+{
+  "schema_version": 1,
+  "host": "prod-server-01",
+  "score": {"value": 34, "max": 100, "grade": "F", "deducted": 66},
+  "summary": {"rules_run": 26, "status": {"fail": 6, "warn": 1, "pass": 15, "skip": 4}, "failed_by_severity": {"critical": 1, "high": 2, "...": 0}},
+  "collection_errors": [],
+  "findings": [{"rule_id": "NET-001", "severity": "critical", "status": "fail", "target": "backend-container → rabbitmq:5672", "learn_topic": "network-isolation", "...": "..."}]
+}
+```
+
+**CI 파이프라인에서 막기** — 특정 심각도 이상의 취약점이 있으면 종료 코드 1을 돌려줍니다.
+
+```yaml
+# GitHub Actions 예시: compose 파일에 CRITICAL/HIGH 취약점이 있으면 PR 실패
+- run: pip install git+https://github.com/taeyangkim4875-byte/dockguard.git
+- run: dockguard scan -c compose -f . --fail-on high -o dockguard.json
+```
+
+### 7. 보안 개념 학습 — `dockguard learn`
+
+리포트의 짧은 설명과 별개로, 각 개념을 **개념 → 동작 원리 → 공격 시나리오 → 권장 방법 → 실제 사례** 순서로 깊이 있게 설명합니다.
+
+```bash
+dockguard learn                 # 주제 목록
+dockguard learn icc             # 주제 이름으로
+dockguard learn COMPOSE-004     # 룰 ID로 — 해당 룰과 가장 관련 깊은 주제 (docker-sock)
+dockguard learn ufw             # 별칭으로 (port-exposure)
+```
+
+| 주제 | 내용 |
+|------|------|
+| `icc` | 기본 bridge의 컨테이너 간 통신, 커스텀 네트워크와의 차이 |
+| `lateral-movement` | 침해된 컨테이너 하나가 서버 전체로 번지는 경로 |
+| `network-isolation` | 신뢰 수준별 네트워크 설계, `internal: true`, 서비스 이름 접속 |
+| `privileged` | privileged가 푸는 것들과 호스트 디스크 마운트 탈출 |
+| `capabilities` | root 권한의 조각들, Docker 기본 14개, `cap_drop: [ALL]` |
+| `seccomp` | 시스템 콜 필터, 기본 프로파일이 막아 준 커널 취약점들 |
+| `userns-remap` | uid 매핑 원리, 데이터 디렉터리 분리, CVE-2019-5736 |
+| `rootless` | 데몬까지 일반 사용자로, docker 그룹 = root 문제 |
+| `docker-sock` | Docker API 소켓의 위험, 2375 포트, 소켓 프록시 |
+| `secrets-management` | 평문 → .env → secrets → 시크릿 저장소, 비밀번호 불일치 사고 |
+| `port-exposure` | `ports:`가 UFW를 우회하는 원리, `DOCKER-USER`, `"ip": "127.0.0.1"` |
+
+`--explain`과 HTML 리포트의 각 항목에도 관련 학습 주제(`dockguard learn <주제>`)가 표시됩니다.
+
+### 8. 룰 목록 보기
 
 ```bash
 dockguard rules
@@ -395,6 +517,9 @@ dockguard rules
 | `-d`, `--deps PATH` | 서비스 의존성 파일. 지정하면 network 영역이 자동으로 포함됨. 기본: `./dependencies.yaml`, `./config/dependencies.yaml` 자동 탐색 |
 | `--docker-snapshot PATH` | Docker에 직접 연결하는 대신 서버에서 떠 온 스냅샷 JSON을 분석 (오프라인 분석) |
 | `-e`, `--explain` | 취약 항목마다 위험 이유 · 수정 방법 · 부작용 · 근거를 상세 표시 |
+| `-o`, `--output PATH` | 리포트를 파일로 저장. 확장자 `.html` · `.json`이면 그 형식, 그 외는 색상 없는 텍스트 |
+| `--format [terminal\|json\|html]` | 출력 형식 명시. `json`을 `-o` 없이 쓰면 표준 출력으로, `html`을 `-o` 없이 쓰면 `dockguard-<호스트>-<시각>.html` |
+| `--fail-on [critical\|high\|medium\|low]` | 이 심각도 이상 취약 항목이 있으면 종료 코드 1 (메시지는 stderr) |
 
 ### `dockguard fix daemon`
 
@@ -409,6 +534,10 @@ dockguard rules
 ### `dockguard fix compose`
 
 compose 파일을 자동 수정하지 않는 이유와, 수정 예시를 보는 방법(`scan -c compose --explain`)을 안내합니다.
+
+### `dockguard learn [주제 | 룰 ID]`
+
+보안 학습 주제 목록 또는 주제 하나의 상세 설명. 없는 주제면 비슷한 주제를 제안합니다 (종료 코드 2).
 
 ### `dockguard rules`
 
@@ -613,9 +742,14 @@ dockguard/
 ├── remediators/
 │   └── daemon_remediator.py   # 계획 · diff · 백업 · 검증 · 롤백 · 다음 단계 안내
 ├── reporters/
-│   ├── terminal.py            # rich 리포트 (점수 게이지, --explain)
+│   ├── terminal.py            # rich 리포트 (점수 게이지, --explain), learn 화면
+│   ├── html.py                # 한 파일로 완결되는 HTML 리포트 (Markdown → HTML, 원문 HTML 차단)
+│   ├── json_reporter.py       # CI/CD 연동용 JSON (schema_version)
 │   └── remediation.py         # fix / rules 화면
+├── templates/
+│   └── report.html.j2         # HTML 리포트 템플릿 (인라인 CSS/JS, 라이트·다크·인쇄)
 └── knowledge/
+    ├── explanations.py        # dockguard learn 학습 콘텐츠 (11개 주제)
     ├── references.py          # CIS 근거 표기 (v1.6.0 기준)
     ├── compose_facts.py       # 위험 capability, 시크릿 이름 규칙 등 보안 지식 상수
     └── network_facts.py       # 외부 노출되면 안 되는 민감 포트 목록
@@ -705,6 +839,10 @@ class HealthcheckRule(ComposeRule):
 | Docker에 연결 못 하면 룰마다 '건너뜀'을 남김 | 조용히 결과를 빼면 "네트워크는 문제없음"으로 오해합니다. 점검하지 못했다는 사실 자체를 표에 드러냅니다. |
 | compose `depends_on`을 의존성으로 자동 추론 | 선언 파일을 쓰지 않아도 기본 검증이 되게 합니다. 단, 이 호스트에서 실행 중인 프로젝트만 대상으로 해 다른 서버용 compose 파일로 오탐하지 않습니다. |
 | NET-004는 Docker가 없으면 compose 파일로 대체 판정 | 민감 포트 노출은 가장 흔한 사고 경로라, 실제 상태를 볼 수 없을 때도 확인할 수 있는 만큼은 확인합니다. |
+| HTML 리포트는 외부 리소스 없이 한 파일로 | 서버에서 만든 리포트를 메일로 보내거나 인터넷이 없는 곳에서 열어도 똑같이 보여야 합니다. 웹 폰트 대신 시스템 폰트를 씁니다. |
+| 리포트의 Markdown은 원문 HTML을 허용하지 않음 | `dependencies.yaml`의 이유 문구처럼 사용자 입력이 섞입니다. 공유되는 리포트가 스크립트 실행(XSS) 경로가 되지 않도록 테스트로 검증합니다. |
+| JSON을 stdout으로 낼 때 나머지 출력은 stderr로 | `dockguard scan --format json \| jq`가 항상 동작하도록, 진행 표시 · 안내 · `--fail-on` 경고가 JSON에 섞이지 않게 합니다. |
+| 설명 텍스트 품질을 테스트로 검사 | 룰과 학습 주제의 설명이 130개가 넘습니다. `**강조(괄호)**에` 같은 한국어 Markdown 함정을 사람이 찾기는 어려워, 전부 렌더링해 보고 남은 `**`를 잡아냅니다. |
 
 ---
 
@@ -716,7 +854,7 @@ pytest                                        # 전체 테스트
 pytest --cov=dockguard --cov-report=term-missing
 ```
 
-- **테스트 621개, 커버리지 98%** — 실제 Docker 없이 실행됩니다.
+- **테스트 817개, 커버리지 98%** — 실제 Docker 없이 실행됩니다.
 - 각 룰마다 **통과 · 취약 · 파일 없음(기본값) · 파싱 실패 · 잘못된 타입** 케이스를 공통 테스트로 검사하고, 룰별 경계 조건을 따로 검사합니다.
 - compose 룰은 안전 · 취약 fixture 전체에 대한 공통 테스트와, 오탐 방지 로직(변수 참조, 이스케이프, 레지스트리 포트, 멀티 스테이지 Dockerfile 등)에 대한 경계 테스트를 갖추고 있습니다.
 - Remediator는 **백업 내용이 원본과 같은지, 검증 실패 시 원본과 디렉터리가 그대로인지, 적용 후 검증 실패 시 롤백되는지**를 테스트합니다.
@@ -730,6 +868,9 @@ pytest --cov=dockguard --cov-report=term-missing
 | `tests/test_network_rules.py` | NET-001 ~ 004 판정 (공유 네트워크, icc 차단, 멈춘 컨테이너, host/container 모드, 스케일 서비스, 정전 시나리오) |
 | `tests/test_docker_runtime.py` | SDK · CLI · 스냅샷 수집 경로와 폴백, inspect 파서, Docker 오류 안내 분류 |
 | `tests/test_dependencies.py` | 의존성 파일 검증 오류 메시지, depends_on 추론, 선언 우선 중복 제거 |
+| `tests/test_reports.py` | JSON 스키마 · stdout 순수성, HTML 자기완결성 · **XSS 이스케이프**, 텍스트 리포트, `--fail-on` |
+| `tests/test_learn.py` | 필수 학습 주제, 관련 룰 ID 유효성, 별칭 · 룰 ID 검색, 없는 주제 제안 |
+| `tests/test_content_quality.py` | **모든 룰 · 학습 주제의 Markdown이 제대로 렌더링되는지** (한국어 강조 표기 함정 자동 검출) |
 | `tests/test_remediator.py` | 계획 · diff · 백업 · 검증 · 롤백 · 직렬화 · 다음 단계 안내 |
 | `tests/test_collector.py` | 플랫폼별 탐색, BOM · 빈 파일 · 권한 오류, rootless 감지 |
 | `tests/test_engine.py` | 자동 등록 · 중복 ID 거부 · 카테고리 필터 · 예외 격리 |
@@ -765,5 +906,5 @@ pytest --cov=dockguard --cov-report=term-missing
 - [x] **Phase 2** — daemon 룰 10종, 안전한 자동 수정(`fix daemon`), `rules` 명령
 - [x] **Phase 3** — docker-compose 스캐너 (룰 12종, 자동 탐색 + override 병합, 서비스별 수정 예시)
 - [x] **Phase 4** — 네트워크 격리 + **서비스 의존성 통신 검증** (`--deps`, depends_on 추론), Docker SDK/CLI/스냅샷 수집
-- [ ] **Phase 5** — HTML · JSON 리포트, `dockguard learn` 보안 학습 기능
+- [x] **Phase 5** — HTML · JSON 리포트, `--fail-on`, `dockguard learn` 보안 학습 기능 (11개 주제)
 - [ ] **Phase 6** — GitHub Actions CI, 데모 시나리오(정전 후 의존성 검증 재현), 스크린샷

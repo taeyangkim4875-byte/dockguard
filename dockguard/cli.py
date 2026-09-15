@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import errno
+import os
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -12,9 +15,12 @@ from rich.console import Console
 from dockguard import __version__
 from dockguard.core.collector import collect
 from dockguard.core.engine import ScanEngine
-from dockguard.core.models import Category
+from dockguard.core.models import Category, Severity, Status
 from dockguard.core.scoring import calculate_score
+from dockguard.knowledge.explanations import EXPLANATIONS, get_topic, suggest_topics
 from dockguard.remediators.daemon_remediator import RemediationError, apply_plan, build_plan, next_steps
+from dockguard.reporters.html import render_html
+from dockguard.reporters.json_reporter import render_json
 from dockguard.reporters.remediation import (
     render_apply_result,
     render_apply_warnings,
@@ -22,7 +28,20 @@ from dockguard.reporters.remediation import (
     render_plan,
     render_rule_list,
 )
-from dockguard.reporters.terminal import TerminalReporter
+from dockguard.reporters.terminal import TerminalReporter, render_topic, render_topic_list
+
+
+class OutputFormat(str, Enum):
+    TERMINAL = "terminal"
+    JSON = "json"
+    HTML = "html"
+
+
+class FailOn(str, Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 app = typer.Typer(
     name="dockguard",
@@ -88,9 +107,31 @@ def scan(
         bool,
         typer.Option("--explain", "-e", help="각 항목의 위험 이유 · 수정 방법 · 부작용을 상세히 표시합니다."),
     ] = False,
+    output_format: Annotated[
+        Optional[OutputFormat],
+        typer.Option(
+            "--format",
+            help="출력 형식. 기본: terminal (--output의 확장자가 .html/.json이면 그 형식)",
+            case_sensitive=False,
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="리포트를 파일로 저장 (예: report.html, result.json, scan.txt)", dir_okay=False),
+    ] = None,
+    fail_on: Annotated[
+        Optional[FailOn],
+        typer.Option(
+            "--fail-on",
+            help="이 심각도 이상의 취약 항목이 있으면 종료 코드 1 (CI 파이프라인용)",
+            case_sensitive=False,
+        ),
+    ] = None,
 ) -> None:
     """Docker 호스트의 보안 설정을 진단합니다."""
-    console = Console()
+    fmt = resolve_format(output_format, output)
+    # JSON을 표준 출력으로 내보낼 때는 진행 표시 · 안내를 stderr로 보내 파이프를 오염시키지 않는다
+    console = Console(stderr=fmt == OutputFormat.JSON and output is None)
     categories = {c.value for c in category} if category else {c.value for c in Category}
     # 대상 파일을 직접 지정했다면 해당 영역 점검은 당연히 포함
     if compose:
@@ -130,7 +171,94 @@ def scan(
         result = engine.run(context)
         score = calculate_score(result.findings)
 
-    TerminalReporter(console=console, explain=explain).render(context, result, score)
+    _emit_report(console, fmt, output, explain, context, result, score)
+
+    if fail_on is not None:
+        threshold = Severity(fail_on.value)
+        blocking = [f for f in result.findings if f.status == Status.FAIL and f.severity.rank <= threshold.rank]
+        if blocking:
+            # 경고는 stderr로 — cron에서 stdout을 버려도(> /dev/null) 이 메시지는 메일로 전달된다
+            ids = ", ".join(dict.fromkeys(f.rule_id for f in sorted(blocking, key=lambda f: f.sort_key())))
+            Console(stderr=True).print(
+                f"[bold red]--fail-on {threshold.name}:[/] {context.hostname}에서 {threshold.name} 이상 "
+                f"취약 항목 {len(blocking)}건 ({ids}) → 종료 코드 1"
+            )
+            raise typer.Exit(code=1)
+
+
+def resolve_format(explicit: OutputFormat | None, output: Path | None) -> OutputFormat:
+    """--format이 없으면 --output 확장자로 형식을 정한다."""
+    if explicit is not None:
+        return explicit
+    if output is not None:
+        suffix = output.suffix.lower()
+        if suffix in (".html", ".htm"):
+            return OutputFormat.HTML
+        if suffix == ".json":
+            return OutputFormat.JSON
+    return OutputFormat.TERMINAL
+
+
+def _default_report_path(context, suffix: str) -> Path:
+    stamp = context.scanned_at.strftime("%Y%m%d-%H%M%S")
+    host = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in context.hostname)
+    return Path(f"dockguard-{host}-{stamp}{suffix}")
+
+
+def _emit_report(console: Console, fmt: OutputFormat, output: Path | None, explain: bool, context, result, score) -> None:
+    if fmt == OutputFormat.TERMINAL:
+        if output is None:
+            TerminalReporter(console=console, explain=explain).render(context, result, score)
+            return
+        with output.open("w", encoding="utf-8") as fh:
+            file_console = Console(file=fh, width=120, color_system=None, force_terminal=False)
+            TerminalReporter(console=file_console, explain=explain).render(context, result, score)
+        _saved(console, "텍스트 리포트", output, score, result)
+        return
+
+    if fmt == OutputFormat.JSON:
+        text = render_json(context, result, score)
+        if output is None:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            return
+        output.write_text(text, encoding="utf-8")
+        _saved(console, "JSON 리포트", output, score, result)
+        return
+
+    path = output or _default_report_path(context, ".html")
+    path.write_text(render_html(context, result, score), encoding="utf-8")
+    _saved(console, "HTML 리포트", path, score, result)
+
+
+def _saved(console: Console, label: str, path: Path, score, result) -> None:
+    counts = result.status_counts()
+    console.print(
+        f"[bold green]{label}를 저장했습니다:[/] {path.resolve()}\n"
+        f"  전체 점수 [bold]{score.value}/100[/] (등급 {score.grade}) · "
+        f"취약 {counts[Status.FAIL]} · 주의 {counts[Status.WARN]} · 통과 {counts[Status.PASS]}"
+    )
+
+
+@app.command()
+def learn(
+    topic: Annotated[
+        Optional[str],
+        typer.Argument(help="학습 주제 (예: icc, seccomp) 또는 룰 ID (예: DAEMON-001). 생략하면 주제 목록"),
+    ] = None,
+) -> None:
+    """Docker 보안 개념을 배웁니다 — 개념, 동작 원리, 공격 시나리오, 권장 방법, 실제 사례."""
+    console = Console()
+    if topic is None:
+        render_topic_list(console, list(EXPLANATIONS.values()))
+        return
+    found = get_topic(topic)
+    if found is None:
+        suggestions = suggest_topics(topic)
+        hint = f" 혹시 이것을 찾으셨나요? {', '.join(suggestions)}" if suggestions else ""
+        console.print(f"[bold red]'{topic}' 주제를 찾을 수 없습니다.[/]{hint}\n[dim]dockguard learn 으로 전체 목록을 확인하세요.[/]")
+        raise typer.Exit(code=2)
+    render_topic(console, found)
 
 
 @app.command("rules")
@@ -255,7 +383,25 @@ def _configure_stdio() -> None:
 def main() -> None:
     """콘솔 스크립트 진입점."""
     _configure_stdio()
-    app()
+    try:
+        app()
+    except BrokenPipeError:
+        _exit_on_closed_pipe()
+    except OSError as exc:
+        # Windows는 닫힌 파이프를 EINVAL로 알린다
+        if exc.errno not in (errno.EPIPE, errno.EINVAL):
+            raise
+        _exit_on_closed_pipe()
+
+
+def _exit_on_closed_pipe() -> None:
+    """`dockguard learn icc | head`처럼 읽는 쪽이 먼저 끝나면 트레이스백 없이 조용히 종료한다."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError):  # pragma: no cover
+        pass
+    sys.exit(1)
 
 
 if __name__ == "__main__":

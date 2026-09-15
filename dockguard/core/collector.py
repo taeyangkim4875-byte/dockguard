@@ -145,6 +145,9 @@ def collect(
         context.compose = _collect_compose(context, compose_paths, root, announce=compose_selected)
     if network_selected:
         context.docker = collect_runtime(docker_snapshot)
+        if docker_snapshot is not None and context.docker.host_name:
+            # 스냅샷 분석이면 리포트의 호스트는 이 PC가 아니라 스냅샷을 뜬 서버다
+            context.hostname = f"{context.docker.host_name} (스냅샷)"
         if not context.docker.available:
             context.errors.append(f"Docker 상태를 수집하지 못해 네트워크 점검을 건너뜁니다 — {context.docker.error}")
         _collect_dependencies(context, deps_path, root)

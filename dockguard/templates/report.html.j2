@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ context.hostname }} 보안 진단 리포트</title>
+<meta name="generator" content="dockguard {{ version }}">
+<style>
+:root {
+  --ground: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --ink: #14202e;
+  --muted: #5a6778;
+  --line: #d9dfe7;
+  --accent: #1b5e9e;
+  --crit: #b42318;
+  --high: #c4450c;
+  --med: #a16207;
+  --low: #1f6f8b;
+  --pass: #1e7a4c;
+  --skip: #6b7280;
+  --trade-bg: #fff4db;
+  --trade-line: #e0a526;
+  --trade-ink: #5c3f00;
+  --del-bg: #fdecec;
+  --del-ink: #9b1c1c;
+  --add-bg: #e7f6ee;
+  --add-ink: #146c43;
+  --code-bg: #0f1a26;
+  --code-ink: #d6e2f0;
+  --inline-code-bg: #e9edf3;
+  --sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "D2Coding", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e141b; --surface: #151d27; --surface-2: #19232f; --ink: #e3e9f1; --muted: #93a2b5; --line: #253241;
+    --accent: #6fa8e8; --crit: #f2766b; --high: #f59b5b; --med: #e4b54b; --low: #5fb7d4; --pass: #5cc68e; --skip: #9aa3af;
+    --trade-bg: #2b2413; --trade-line: #b8871f; --trade-ink: #f0d9a0;
+    --del-bg: #3a1717; --del-ink: #f5a3a3; --add-bg: #10301f; --add-ink: #8fdcb0;
+    --code-bg: #0a1017; --inline-code-bg: #223040; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e141b; --surface: #151d27; --surface-2: #19232f; --ink: #e3e9f1; --muted: #93a2b5; --line: #253241;
+  --accent: #6fa8e8; --crit: #f2766b; --high: #f59b5b; --med: #e4b54b; --low: #5fb7d4; --pass: #5cc68e; --skip: #9aa3af;
+  --trade-bg: #2b2413; --trade-line: #b8871f; --trade-ink: #f0d9a0;
+  --del-bg: #3a1717; --del-ink: #f5a3a3; --add-bg: #10301f; --add-ink: #8fdcb0;
+  --code-bg: #0a1017; --inline-code-bg: #223040; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  padding: 0 16px;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.65 var(--sans);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code, pre, .mono { font-family: var(--mono); }
+.page { max-width: 1040px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 28px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.3; margin: 0; }
+
+/* ---------- 표지 */
+.cover {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 28px 32px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px 40px;
+  align-items: center;
+}
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.cover h1 { font-size: 30px; font-weight: 750; letter-spacing: -.01em; margin-top: 6px; }
+.cover .host { font-family: var(--mono); font-size: 17px; color: var(--accent); margin-top: 4px; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 18px 0 0; font-size: 13.5px; }
+.meta dt { color: var(--muted); }
+.meta dd { margin: 0; font-family: var(--mono); font-size: 12.5px; }
+.score { display: grid; justify-items: center; gap: 8px; }
+.ring { width: 132px; height: 132px; }
+.ring .track { stroke: var(--line); }
+.ring .value { transition: none; }
+.ring text { fill: var(--ink); font-family: var(--sans); }
+.grade {
+  font-weight: 700; font-size: 13px; padding: 3px 12px; border-radius: 999px;
+  color: var(--surface); letter-spacing: .04em;
+}
+.g-A { --g: var(--pass); } .g-B { --g: var(--low); } .g-C { --g: var(--med); } .g-D { --g: var(--high); } .g-F { --g: var(--crit); }
+.grade { background: var(--g); }
+.ring .value { stroke: var(--g); }
+
+/* ---------- 집계 */
+.tally { display: grid; grid-template-columns: repeat(4, 1fr) 1.6fr; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.tally > div { padding: 14px 18px; border-left: 1px solid var(--line); display: grid; gap: 2px; }
+.tally > div:first-child { border-left: 0; }
+.tally .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tally .k { font-size: 11.5px; letter-spacing: .07em; font-weight: 700; color: var(--muted); }
+.tally .zero .n { color: var(--muted); opacity: .55; }
+.sev-critical { --s: var(--crit); } .sev-high { --s: var(--high); } .sev-medium { --s: var(--med); } .sev-low { --s: var(--low); } .sev-info { --s: var(--skip); }
+.tally .sev:not(.zero) .n, .tally .sev:not(.zero) .k { color: var(--s); }
+.statuses { display: flex; flex-wrap: wrap; align-content: center; gap: 6px 14px; font-size: 13.5px; }
+.statuses b { font-variant-numeric: tabular-nums; }
+
+/* ---------- 알림 */
+.alerts { display: grid; gap: 8px; }
+.alert { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; background: var(--surface); font-size: 13.5px; }
+.alert.error { border-color: var(--crit); }
+.alert.error strong { color: var(--crit); }
+.alert strong { margin-right: 6px; }
+
+/* ---------- 섹션 */
+section { display: grid; gap: 14px; }
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+.section-head h2 { font-size: 21px; font-weight: 750; }
+.section-head .src { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.section-head .cnt { margin-left: auto; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- 요약 표 */
+.index-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table.index { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.index th { text-align: left; font-size: 11.5px; letter-spacing: .07em; color: var(--muted); font-weight: 700; padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.index td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.index tr:last-child td { border-bottom: 0; }
+table.index td.id { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+table.index td.tgt { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+table.index a { color: inherit; text-decoration: none; }
+table.index a:hover { color: var(--accent); text-decoration: underline; }
+
+/* ---------- 칩 */
+.chip { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 2px 8px; border-radius: 4px; color: var(--surface); background: var(--s); white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 10px; border-radius: 999px; border: 1.5px solid currentColor; white-space: nowrap; }
+.st-fail { color: var(--crit); } .st-warn { color: var(--med); } .st-skip { color: var(--skip); } .st-pass { color: var(--pass); }
+
+/* ---------- 발견 카드 */
+.finding { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; scroll-margin-top: 16px; }
+.finding:target { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.f-head { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 16px 20px 12px; }
+.f-head .rid { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.f-head h3 { grid-column: 1 / -1; font-size: 17px; font-weight: 700; }
+.f-head .tgt { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.diff { margin: 0 20px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; font-family: var(--mono); font-size: 12.5px; }
+.diff div { display: grid; grid-template-columns: 1.4em 3.6em 1fr; gap: 0 8px; padding: 7px 12px; }
+.diff .del { background: var(--del-bg); color: var(--del-ink); }
+.diff .add { background: var(--add-bg); color: var(--add-ink); }
+.diff .lbl { font-family: var(--sans); font-size: 11.5px; font-weight: 700; opacity: .85; padding-top: 1px; }
+.f-body { padding: 16px 20px 20px; display: grid; gap: 16px; }
+.part h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
+.tradeoff { background: var(--trade-bg); border: 1px solid var(--trade-line); border-radius: 8px; padding: 14px 16px; color: var(--trade-ink); }
+.tradeoff h4 { color: var(--trade-ink); opacity: 1; }
+.tradeoff h4::before { content: "⚠ "; }
+.refs { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--muted); padding-top: 12px; border-top: 1px dashed var(--line); }
+.refs code { font-size: 12px; }
+
+/* Markdown 본문 */
+.md { max-width: 72ch; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md table, .md blockquote, .md pre { margin: 0 0 10px; }
+.md ul, .md ol { padding-left: 1.3em; }
+.md li + li { margin-top: 3px; }
+.md code { background: var(--inline-code-bg); padding: .1em .35em; border-radius: 4px; font-size: .88em; }
+.md pre { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; max-width: 100%; }
+.md pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.md blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+.tradeoff .md blockquote { border-left-color: var(--trade-line); color: inherit; }
+.md table { border-collapse: collapse; font-size: 13px; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--surface-2); }
+.copy { position: absolute; top: 8px; right: 8px; font: 600 11px var(--sans); color: var(--code-ink); background: transparent; border: 1px solid #3a4a5c; border-radius: 4px; padding: 3px 8px; cursor: pointer; opacity: .75; }
+.copy:hover { opacity: 1; }
+
+/* 통과 · 건너뜀 목록 */
+details.rest { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+details.rest > summary { cursor: pointer; padding: 12px 18px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.rest ul { list-style: none; margin: 0; padding: 0 18px 12px; display: grid; }
+.rest li { display: grid; grid-template-columns: 7.5em 5.5em 1fr; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; align-items: baseline; }
+.rest li .rid { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.rest li .cur { grid-column: 3; color: var(--muted); font-size: 12.5px; }
+
+.empty { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; color: var(--pass); font-weight: 600; }
+footer { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+@media (max-width: 720px) {
+  .page { padding-block: 20px 40px; gap: 20px; }
+  .cover { grid-template-columns: 1fr; padding: 20px; }
+  .score { justify-items: start; grid-auto-flow: column; align-items: center; gap: 16px; }
+  .tally { grid-template-columns: repeat(4, 1fr); }
+  .tally .statuses { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+  .tally > div { padding: 10px 12px; }
+  .tally .n { font-size: 21px; }
+  .f-head, .f-body { padding-inline: 16px; }
+  .diff { margin-inline: 16px; }
+  .rest li { grid-template-columns: 1fr auto; }
+  .rest li .cur { grid-column: 1 / -1; }
+}
+@media print {
+  body { background: #fff; padding: 0; }
+  .copy { display: none; }
+  .f-head, .diff { break-inside: avoid-page; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="cover">
+    <div>
+      <div class="eyebrow">dockguard · Docker 호스트 보안 진단</div>
+      <h1>보안 진단 리포트</h1>
+      <div class="host">{{ context.hostname }}</div>
+      <dl class="meta">
+        <dt>점검 시각</dt><dd>{{ context.scanned_at.strftime("%Y-%m-%d %H:%M:%S (UTC%z)") }}</dd>
+        <dt>점검 영역</dt><dd>{{ context.categories | sort | join(" · ") }}</dd>
+        {% if context.daemon %}<dt>daemon.json</dt><dd>{{ context.daemon.target_label }}</dd>{% endif %}
+        {% if context.compose_projects %}<dt>compose</dt><dd>{{ context.compose_projects | map(attribute="label") | join(", ") }}</dd>{% endif %}
+        {% if context.docker and context.docker.available %}<dt>Docker</dt><dd>{{ context.docker.source }}{% if context.docker.server_version %} · Engine {{ context.docker.server_version }}{% endif %} · 컨테이너 {{ context.docker.running_containers | length }}개 실행 중</dd>{% endif %}
+        {% if context.dependency_file %}<dt>의존성 선언</dt><dd>{{ context.dependency_file }}</dd>{% endif %}
+        <dt>실행한 룰</dt><dd>{{ result.rules_run }}개</dd>
+      </dl>
+    </div>
+    <div class="score g-{{ score.grade }}">
+      <svg class="ring" viewBox="0 0 132 132" role="img" aria-label="보안 점수 {{ score.value }}점 / {{ max_score }}점, 등급 {{ score.grade }}">
+        <circle class="track" cx="66" cy="66" r="{{ gauge_radius }}" fill="none" stroke-width="10"></circle>
+        <circle class="value" cx="66" cy="66" r="{{ gauge_radius }}" fill="none" stroke-width="10" stroke-linecap="round"
+                stroke-dasharray="{{ gauge_circumference }}" stroke-dashoffset="{{ gauge_offset }}" transform="rotate(-90 66 66)"></circle>
+        <text x="66" y="66" text-anchor="middle" font-size="38" font-weight="750" dominant-baseline="central">{{ score.value }}</text>
+        <text x="66" y="96" text-anchor="middle" font-size="12" fill-opacity=".6">/ {{ max_score }}</text>
+      </svg>
+      <span class="grade">등급 {{ score.grade }}</span>
+    </div>
+  </header>
+
+  <div class="tally" aria-label="취약 항목 심각도별 개수">
+    {% for sev in severities %}
+    <div class="sev sev-{{ sev.value }}{% if not severity_counts[sev.value] %} zero{% endif %}">
+      <span class="k">{{ sev.name }}</span>
+      <span class="n">{{ severity_counts[sev.value] }}</span>
+    </div>
+    {% endfor %}
+    <div class="statuses">
+      <span class="st-fail">취약 <b>{{ status_counts.fail }}</b></span>
+      <span class="st-warn">주의 <b>{{ status_counts.warn }}</b></span>
+      <span class="st-pass">통과 <b>{{ status_counts.pass }}</b></span>
+      <span class="st-skip">건너뜀 <b>{{ status_counts.skip }}</b></span>
+    </div>
+  </div>
+
+  {% if context.errors or context.notices or result.errors %}
+  <div class="alerts">
+    {% for e in context.errors %}<div class="alert error"><strong>점검하지 못한 대상</strong>{{ e }}</div>{% endfor %}
+    {% for e in result.errors %}<div class="alert error"><strong>룰 실행 오류</strong><span class="mono">{{ e.rule_id }}</span> — {{ e.message }}</div>{% endfor %}
+    {% for n in context.notices %}<div class="alert"><strong>안내</strong>{{ n }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <section aria-labelledby="todo">
+    <div class="section-head">
+      <h2 id="todo">조치가 필요한 항목</h2>
+      <span class="cnt">{{ problems | length }}건 · 심각도 순</span>
+    </div>
+    {% if problems %}
+    <div class="index-wrap">
+      <table class="index">
+        <thead><tr><th>심각도</th><th>ID</th><th>항목</th><th>상태</th><th>대상</th></tr></thead>
+        <tbody>
+        {% for f in problems %}
+          <tr>
+            <td><span class="chip sev-{{ f.severity.value }}">{{ f.severity.name }}</span></td>
+            <td class="id">{{ f.rule_id }}</td>
+            <td><a href="#{{ anchor(f) }}">{{ f.title }}</a></td>
+            <td><span class="pill st-{{ f.status.value }}">{{ status_labels[f.status.value] }}</span></td>
+            <td class="tgt">{{ f.target }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">조치가 필요한 항목이 없습니다.</div>
+    {% endif %}
+  </section>
+
+  {% for g in groups %}
+  <section aria-labelledby="cat-{{ g.key }}">
+    <div class="section-head">
+      <h2 id="cat-{{ g.key }}">{{ g.title }}</h2>
+      <span class="src">{{ g.source }}</span>
+      <span class="cnt">취약 {{ g.counts.fail }} · 주의 {{ g.counts.warn }} · 통과 {{ g.counts.pass }}{% if g.counts.skip %} · 건너뜀 {{ g.counts.skip }}{% endif %}</span>
+    </div>
+
+    {% for f in g.problems %}
+    {% set topic = topic_for_rule(f.rule_id) %}
+    <article class="finding" id="{{ anchor(f) }}">
+      <div class="f-head">
+        <span class="chip sev-{{ f.severity.value }}">{{ f.severity.name }}</span>
+        <span class="rid">{{ f.rule_id }}</span>
+        <span class="pill st-{{ f.status.value }}">{{ status_labels[f.status.value] }}</span>
+        <h3>{{ f.title }}</h3>
+        <div class="tgt">{{ f.target }}</div>
+      </div>
+      <div class="diff" aria-label="현재값과 권장값">
+        <div class="del"><span>−</span><span class="lbl">현재</span><span>{{ f.current_value }}</span></div>
+        <div class="add"><span>+</span><span class="lbl">권장</span><span>{{ f.recommended }}</span></div>
+      </div>
+      <div class="f-body">
+        <div class="part"><h4>왜 위험한가</h4><div class="md">{{ f.why | markdown }}</div></div>
+        <div class="part"><h4>어떻게 고치나</h4><div class="md">{{ f.how_to_fix | markdown }}</div></div>
+        {% if f.tradeoff %}
+        <div class="part tradeoff"><h4>고치면 생기는 일 (부작용 · 주의사항)</h4><div class="md">{{ f.tradeoff | markdown }}</div></div>
+        {% endif %}
+        <div class="refs">
+          {% if f.reference %}<span>근거 · {{ f.reference }}</span>{% endif %}
+          {% if f.learn_more %}<a href="{{ f.learn_more }}" rel="noopener noreferrer">공식 문서</a>{% endif %}
+          {% if topic %}<span>더 알아보기 · <code>dockguard learn {{ topic.key }}</code></span>{% endif %}
+          {% if f.auto_fixable %}<span>자동 수정 가능 · <code>dockguard fix daemon</code></span>{% endif %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+
+    {% if g.others %}
+    <details class="rest"{% if not g.problems %} open{% endif %}>
+      <summary>통과 · 건너뜀 {{ g.others | length }}건</summary>
+      <ul>
+        {% for f in g.others %}
+        <li>
+          <span class="rid">{{ f.rule_id }}</span>
+          <span class="pill st-{{ f.status.value }}">{{ status_labels[f.status.value] }}</span>
+          <span>{{ f.title }}</span>
+          <span class="cur">{{ f.target }} — {{ f.current_value }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <footer>
+    <span>dockguard {{ version }}으로 생성</span>
+    <span>근거 기준 · CIS Docker Benchmark v1.6.0</span>
+    <span>점수 · 100점에서 취약 항목마다 CRITICAL 40 · HIGH 20 · MEDIUM 10 · LOW 3 감점</span>
+    <a href="https://github.com/taeyangkim4875-byte/dockguard" rel="noopener noreferrer">github.com/taeyangkim4875-byte/dockguard</a>
+  </footer>
+</main>
+<script>
+document.querySelectorAll(".md pre").forEach(function (pre) {
+  var button = document.createElement("button");
+  button.type = "button";
+  button.className = "copy";
+  button.textContent = "복사";
+  button.addEventListener("click", function () {
+    var text = pre.querySelector("code") ? pre.querySelector("code").innerText : pre.innerText;
+    var done = function () { button.textContent = "복사됨"; setTimeout(function () { button.textContent = "복사"; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { button.textContent = "복사 실패"; });
+    } else {
+      var range = document.createRange(); range.selectNodeContents(pre);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      button.textContent = "선택됨 — Ctrl+C";
+    }
+  });
+  pre.appendChild(button);
+});
+</script>
+</body>
+</html>

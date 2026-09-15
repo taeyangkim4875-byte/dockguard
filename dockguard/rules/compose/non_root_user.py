@@ -57,7 +57,7 @@ class NonRootUserRule(ComposeRule):
     recommended = 'user: "1000:1000" (또는 Dockerfile의 USER)'
 
     why = """\
-`user:`를 지정하지 않으면 컨테이너는 이미지에 정해진 사용자로 실행되고, **대부분의 이미지는 root(uid 0)**로 \
+`user:`를 지정하지 않으면 컨테이너는 이미지에 정해진 사용자로 실행되고, **대부분의 이미지는 root(uid 0)로** \
 실행된다. 기본 설정에서 컨테이너 안의 root는 호스트의 root와 **같은 uid**다 (DAEMON-006 참고).
 
 그래서 root로 도는 컨테이너는 다음 상황에서 피해가 곧바로 커진다.

@@ -25,16 +25,20 @@ DEPENDENCY_FILE_CANDIDATES: tuple[str, ...] = (
 )
 
 
+# 서버 전역 위치 — 어느 디렉터리에서 실행해도 찾는다 (현재 디렉터리의 파일이 우선)
+SYSTEM_DEPENDENCY_FILE = Path("/etc/dockguard/dependencies.yaml")
+
+
 class DependencyFileError(Exception):
     """의존성 파일 형식 오류. 메시지는 사용자에게 그대로 보여준다."""
 
 
-def find_dependency_file(root: Path) -> Path | None:
+def find_dependency_file(root: Path, system_file: Path = SYSTEM_DEPENDENCY_FILE) -> Path | None:
     for name in DEPENDENCY_FILE_CANDIDATES:
         candidate = root / name
         if candidate.is_file():
             return candidate
-    return None
+    return system_file if system_file.is_file() else None
 
 
 def _parse_port(value: Any, index: int) -> int | None:

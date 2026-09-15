@@ -60,11 +60,16 @@ class TestDependencyFile:
             load_dependency_file(tmp_path / "nope.yaml")
 
     def test_find_dependency_file_order(self, tmp_path):
-        assert find_dependency_file(tmp_path) is None
-        config = _write(tmp_path / "config" / "dependencies.yaml", "dependencies: []")
-        assert find_dependency_file(tmp_path) == config
-        root = _write(tmp_path / "dependencies.yaml", "dependencies: []")
-        assert find_dependency_file(tmp_path) == root
+        system = tmp_path / "etc" / "dependencies.yaml"
+        project = tmp_path / "project"
+        project.mkdir()
+        assert find_dependency_file(project, system_file=system) is None
+        _write(system, "dependencies: []")
+        assert find_dependency_file(project, system_file=system) == system  # 서버 전역 위치
+        config = _write(project / "config" / "dependencies.yaml", "dependencies: []")
+        assert find_dependency_file(project, system_file=system) == config  # 현재 디렉터리가 우선
+        root = _write(project / "dependencies.yaml", "dependencies: []")
+        assert find_dependency_file(project, system_file=system) == root
 
 
 def _container(name: str, project: str, service: str, config_file: str = "") -> ContainerInfo:

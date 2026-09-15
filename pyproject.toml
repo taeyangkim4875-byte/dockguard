@@ -23,6 +23,8 @@ dependencies = [
     "typer>=0.9",
     "rich>=13.0",
     "PyYAML>=6.0",
+    "Jinja2>=3.1",
+    "markdown-it-py>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,9 @@ dockguard = "dockguard.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["dockguard*"]
+
+[tool.setuptools.package-data]
+dockguard = ["templates/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

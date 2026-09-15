@@ -17,6 +17,8 @@ htmlcov/
 
 # dockguard 산출물
 report*.html
+dockguard-*.html
+dockguard*.json
 *.bak.*
 
 # 로컬 의존성 정의 (예시 파일은 커밋)

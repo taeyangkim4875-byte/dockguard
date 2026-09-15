@@ -17,6 +17,7 @@ from dockguard import __version__
 from dockguard.core.context import ScanContext
 from dockguard.core.models import Finding, ScanResult, Severity, Status
 from dockguard.core.scoring import MAX_SCORE, Score
+from dockguard.knowledge.explanations import Topic, topic_for_rule
 
 SEVERITY_STYLES: dict[Severity, str] = {
     Severity.CRITICAL: "bold red",
@@ -217,7 +218,13 @@ class TerminalReporter:
             meta.append(f.reference + "\n", style="dim")
         if f.learn_more:
             meta.append("참고  ", style="bold")
-            meta.append(f.learn_more, style="dim underline")
+            meta.append(f.learn_more + "\n", style="dim underline")
+        topic = topic_for_rule(f.rule_id)
+        if topic:
+            meta.append("학습  ", style="bold")
+            meta.append(f"dockguard learn {topic.key}", style="cyan")
+            meta.append(f"  — {topic.title}", style="dim")
+        meta.rstrip()
         if meta:
             parts += [Text(), meta]
 
@@ -229,3 +236,45 @@ class TerminalReporter:
         if not body:
             return []
         return [Text(), Text(f"■ {heading}", style=style), Markdown(body, code_theme="monokai")]
+
+
+# ---------------------------------------------------------------------- dockguard learn
+
+_SECTION_STYLES = {
+    "concept": "bold cyan",
+    "detail": "bold blue",
+    "attack_scenario": "bold red",
+    "best_practice": "bold green",
+    "real_world": "bold yellow",
+}
+
+
+def render_topic_list(console: Console, topics: list[Topic]) -> None:
+    table = Table(box=box.SIMPLE_HEAVY, header_style="bold", pad_edge=False, title="dockguard learn — 보안 학습 주제", title_justify="left")
+    table.add_column("주제", no_wrap=True, style="bold cyan")
+    table.add_column("제목", no_wrap=True)
+    table.add_column("요약", ratio=1)
+    table.add_column("관련 룰", style="dim")
+    for t in topics:
+        table.add_row(t.key, t.title, t.summary, ", ".join(t.related_rules))
+    console.print(table)
+    console.print(Text("  dockguard learn <주제>  또는  dockguard learn <룰 ID>  (예: dockguard learn icc, dockguard learn COMPOSE-004)", style="dim"))
+
+
+def render_topic(console: Console, topic: Topic) -> None:
+    header = Text.assemble((topic.title, "bold"), "\n", (topic.summary, "dim"))
+    console.print(Panel(header, title=f"[bold]dockguard learn[/] {topic.key}", title_align="left", border_style="cyan", padding=(1, 2)))
+    for field_name, heading in Topic.SECTIONS:
+        body = getattr(topic, field_name)
+        console.print(Text(f"\n■ {heading}", style=_SECTION_STYLES[field_name]))
+        console.print(Markdown(body, code_theme="monokai"))
+    if topic.related_rules:
+        console.print()
+        console.print(
+            Text.assemble(
+                ("관련 점검  ", "bold"),
+                (", ".join(topic.related_rules), "cyan"),
+                ("   →  dockguard scan --explain 으로 내 환경의 해당 항목을 확인하세요", "dim"),
+            )
+        )
+    console.print()

@@ -246,6 +246,7 @@ def build_runtime(backend: Backend) -> DockerRuntime:
         networks=networks,
         security_options=[str(o) for o in info.get("SecurityOptions") or []],
         server_version=info.get("ServerVersion"),
+        host_name=info.get("Name"),
     )
 
 
