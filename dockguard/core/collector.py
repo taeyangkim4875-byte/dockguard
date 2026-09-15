@@ -9,27 +9,30 @@ from __future__ import annotations
 import json
 import os
 import socket
+import stat
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from dockguard.core.context import DaemonConfig, ScanContext
+from dockguard.core.context import DaemonConfig, FileStat, ScanContext
 from dockguard.core.models import Category
 
 # 리눅스 표준 경로. 파일이 어디에도 없을 때 "여기에 만들면 된다"는 안내에도 쓴다.
 LINUX_DAEMON_CONFIG = Path("/etc/docker/daemon.json")
 
 
+def rootless_daemon_config() -> Path:
+    """rootless 모드 dockerd가 읽는 daemon.json 경로."""
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return xdg / "docker" / "daemon.json"
+
+
 def daemon_config_candidates() -> list[Path]:
     """플랫폼별 daemon.json 후보 경로 (우선순위 순)."""
     home = Path.home()
     if sys.platform.startswith("linux"):
-        xdg = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
-        return [
-            LINUX_DAEMON_CONFIG,
-            xdg / "docker" / "daemon.json",  # rootless 모드
-        ]
+        return [LINUX_DAEMON_CONFIG, rootless_daemon_config()]
     if sys.platform == "darwin":
         return [home / ".docker" / "daemon.json"]  # Docker Desktop
     if sys.platform == "win32":
@@ -49,44 +52,49 @@ def find_daemon_config(candidates: Iterable[Path] | None = None) -> Path | None:
     return None
 
 
-def load_daemon_config(path: Path) -> DaemonConfig:
+def _file_stat(path: Path) -> FileStat | None:
+    """POSIX에서만 소유권/권한을 수집한다 (Windows의 stat 권한 비트는 의미가 없다)."""
+    if os.name != "posix":
+        return None
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return FileStat(mode=stat.S_IMODE(st.st_mode), uid=st.st_uid, gid=st.st_gid)
+
+
+def load_daemon_config(path: Path, rootless: bool = False) -> DaemonConfig:
     """daemon.json을 읽어 DaemonConfig로 만든다. 실패해도 예외를 던지지 않는다."""
     if not path.exists():
-        return DaemonConfig(path=path, exists=False)
+        return DaemonConfig(path=path, exists=False, rootless=rootless)
+
+    base = {"path": path, "exists": True, "stat": _file_stat(path), "rootless": rootless}
     try:
         # Windows 편집기가 붙이는 BOM도 허용
         text = path.read_text(encoding="utf-8-sig")
     except PermissionError:
-        return DaemonConfig(
-            path=path,
-            exists=True,
-            error="파일을 읽을 권한이 없습니다. sudo로 다시 실행해 보세요.",
-        )
+        return DaemonConfig(**base, error="파일을 읽을 권한이 없습니다. sudo로 다시 실행해 보세요.")
     except OSError as exc:
-        return DaemonConfig(path=path, exists=True, error=f"파일을 읽을 수 없습니다: {exc}")
+        return DaemonConfig(**base, error=f"파일을 읽을 수 없습니다: {exc}")
 
     if not text.strip():
         # 빈 파일은 Docker도 설정 없음으로 취급한다
-        return DaemonConfig(path=path, exists=True, data={})
+        return DaemonConfig(**base, data={}, raw_text=text)
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         return DaemonConfig(
-            path=path,
-            exists=True,
+            **base,
+            raw_text=text,
             error=(
                 f"JSON 파싱 실패 ({exc.lineno}행 {exc.colno}열: {exc.msg}). "
                 "이 상태로는 Docker 데몬이 시작되지 않습니다."
             ),
         )
     if not isinstance(data, dict):
-        return DaemonConfig(
-            path=path,
-            exists=True,
-            error="최상위 값이 JSON 객체({ ... })가 아닙니다.",
-        )
-    return DaemonConfig(path=path, exists=True, data=data)
+        return DaemonConfig(**base, raw_text=text, error="최상위 값이 JSON 객체({ ... })가 아닙니다.")
+    return DaemonConfig(**base, data=data, raw_text=text)
 
 
 def collect(
@@ -112,13 +120,17 @@ def collect(
     return context
 
 
+def _is_rootless_path(path: Path) -> bool:
+    return sys.platform.startswith("linux") and path == rootless_daemon_config()
+
+
 def _collect_daemon(context: ScanContext, explicit_path: Path | None) -> DaemonConfig:
     if explicit_path is not None:
-        return load_daemon_config(explicit_path)
+        return load_daemon_config(explicit_path, rootless=_is_rootless_path(explicit_path))
 
     found = find_daemon_config()
     if found is not None:
-        return load_daemon_config(found)
+        return load_daemon_config(found, rootless=_is_rootless_path(found))
 
     # 어디에도 없으면 표준 경로 기준으로 "파일 없음" 처리 → 룰은 Docker 기본값으로 판단
     fallback = daemon_config_candidates()[0]

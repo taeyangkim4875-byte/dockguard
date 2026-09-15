@@ -10,7 +10,9 @@ from dockguard.core.models import Finding, Severity, Status
 from dockguard.core.rule import Rule, all_rules, register, registered_rule_classes
 from dockguard.rules import load_all_rules
 
-PHASE1_RULE_IDS = {"DAEMON-001", "DAEMON-002", "DAEMON-004"}
+DAEMON_RULE_IDS = {f"DAEMON-{n:03d}" for n in range(1, 11)}
+# DAEMON-007(파일 권한)은 OS에 따라 결과가 달라 내용 점검 룰만 따로 본다
+DAEMON_CONTENT_RULE_IDS = DAEMON_RULE_IDS - {"DAEMON-007"}
 
 
 class _StubRule(Rule):
@@ -48,10 +50,10 @@ class _ExplodingRule(Rule):
 # --------------------------------------------------------------------- 레지스트리 / 자동 탐색
 
 
-def test_auto_discovery_registers_daemon_rules():
+def test_auto_discovery_registers_all_daemon_rules():
     load_all_rules()
     ids = {cls.id for cls in registered_rule_classes()}
-    assert PHASE1_RULE_IDS <= ids
+    assert DAEMON_RULE_IDS <= ids
 
 
 def test_load_all_rules_is_idempotent():
@@ -73,9 +75,10 @@ def test_registered_rule_ids_are_unique_and_complete():
 
 
 def test_base_rule_classes_are_not_registered():
-    """공통 베이스(BooleanDaemonRule)는 @register가 없으므로 실행 대상이 아니다."""
+    """공통 베이스(DaemonRule, BooleanDaemonRule)는 @register가 없으므로 실행 대상이 아니다."""
     load_all_rules()
     names = {cls.__name__ for cls in registered_rule_classes()}
+    assert "DaemonRule" not in names
     assert "BooleanDaemonRule" not in names
 
 
@@ -113,11 +116,12 @@ def test_register_same_class_twice_is_noop(monkeypatch):
     assert registered_rule_classes() == [Once]
 
 
-def test_base_rule_remediate_not_supported(context_factory):
-    stub = _StubRule("STUB-1", "daemon")
+def test_base_rule_has_no_fix_by_default(context_factory):
+    stub = _StubRule("STUB-1", "daemon", Status.FAIL)
     finding = stub.check(context_factory())[0]
-    with pytest.raises(NotImplementedError):
-        stub.remediate(finding, context_factory())
+    assert stub.plan_fix(finding, context_factory()) is None
+    assert not finding.auto_fixable
+    assert stub.no_autofix_reason
 
 
 def test_base_rule_check_not_implemented(context_factory):
@@ -130,7 +134,7 @@ def test_base_rule_check_not_implemented(context_factory):
 
 def test_engine_default_loads_registered_rules():
     engine = ScanEngine()
-    assert PHASE1_RULE_IDS <= {r.id for r in engine.rules}
+    assert DAEMON_RULE_IDS <= {r.id for r in engine.rules}
 
 
 def test_engine_filters_by_category(context_factory):
@@ -162,9 +166,15 @@ def test_engine_isolates_rule_exceptions(context_factory):
 
 def test_engine_with_real_rules_on_insecure_config(daemon_context):
     result = ScanEngine(categories={"daemon"}).run(daemon_context("insecure.json"))
-    phase1 = [f for f in result.findings if f.rule_id in PHASE1_RULE_IDS]
-    assert len(phase1) == 3
-    assert all(f.status == Status.FAIL for f in phase1)
+    content = [f for f in result.findings if f.rule_id in DAEMON_CONTENT_RULE_IDS]
+    assert len(content) == len(DAEMON_CONTENT_RULE_IDS)
+    assert all(f.status == Status.FAIL for f in content)
+    assert not result.errors
+
+
+def test_engine_with_real_rules_on_secure_config(daemon_context):
+    result = ScanEngine(categories={"daemon"}).run(daemon_context("secure.json"))
+    assert not [f for f in result.findings if f.status == Status.FAIL]
     assert not result.errors
 
 

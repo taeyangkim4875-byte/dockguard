@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 from dockguard.core import collector
+from dockguard.core.context import FileStat
 from dockguard.core.collector import (
     LINUX_DAEMON_CONFIG,
     collect,
@@ -130,6 +132,57 @@ def test_collect_auto_detect_missing_adds_notice(monkeypatch):
 def test_collect_skips_daemon_when_not_requested():
     context = collect(categories={"compose"})
     assert context.daemon is None
+
+
+def test_load_keeps_raw_text_for_diff(daemon_fixture):
+    path = daemon_fixture("secure.json")
+    assert load_daemon_config(path).raw_text == path.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX 권한은 리눅스/맥에서만 수집")
+def test_posix_stat_is_collected(tmp_path: Path):
+    path = tmp_path / "daemon.json"
+    path.write_text("{}", encoding="utf-8")
+    path.chmod(0o640)
+    config = load_daemon_config(path)
+    assert config.stat is not None
+    assert config.stat.mode == 0o640
+    assert config.stat.uid == os.getuid()
+
+
+@pytest.mark.skipif(os.name == "posix", reason="Windows 전용")
+def test_stat_not_collected_on_windows(daemon_fixture):
+    assert load_daemon_config(daemon_fixture("secure.json")).stat is None
+
+
+def test_stat_collected_even_when_unreadable(tmp_path: Path, monkeypatch):
+    """읽기 권한이 없어도 권한 정보(DAEMON-007)는 따로 수집된다."""
+    path = tmp_path / "daemon.json"
+    path.write_text("{}", encoding="utf-8")
+    fake = FileStat(mode=0o600, uid=0, gid=0)
+    monkeypatch.setattr(collector, "_file_stat", lambda p: fake)
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(PermissionError()))
+    config = load_daemon_config(path)
+    assert not config.usable
+    assert config.stat == fake
+
+
+def test_rootless_config_is_detected(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    rootless_path = tmp_path / "docker" / "daemon.json"
+    rootless_path.parent.mkdir()
+    rootless_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(collector, "find_daemon_config", lambda: rootless_path)
+
+    context = collect(categories={"daemon"})
+    assert context.daemon.rootless
+    assert context.daemon.user_scoped
+
+
+def test_system_config_is_not_rootless(daemon_fixture):
+    context = collect(categories={"daemon"}, daemon_config_path=daemon_fixture("secure.json"))
+    assert not context.daemon.rootless
 
 
 def test_collect_defaults_to_all_categories(monkeypatch):

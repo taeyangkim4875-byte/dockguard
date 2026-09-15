@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+from pathlib import Path
+
+import pytest
 from typer.testing import CliRunner
 
 from dockguard import __version__
 from dockguard.cli import app
 from dockguard.core import collector
+from dockguard.remediators import daemon_remediator as rem
 
 runner = CliRunner()
 
@@ -26,11 +32,11 @@ def test_scan_secure_config_scores_100(daemon_fixture):
 def test_scan_insecure_config_reports_failures(daemon_fixture):
     result = _scan("-c", "daemon", "--daemon-config", str(daemon_fixture("insecure.json")))
     assert result.exit_code == 0, result.output
-    # HIGH(20) + MEDIUM(10) + LOW(3) = 33점 감점
-    assert "67" in result.output
-    assert "등급 C" in result.output
-    for rule_id in ("DAEMON-001", "DAEMON-002", "DAEMON-004"):
-        assert rule_id in result.output
+    # HIGH 4개(80) + MEDIUM 3개(30) + LOW 2개(6) = 116점 감점 → 하한 0
+    assert "전체 점수: 0/100" in result.output
+    assert "등급 F" in result.output
+    for n in (1, 2, 3, 4, 5, 6, 8, 9, 10):
+        assert f"DAEMON-{n:03d}" in result.output
     assert "--explain" in result.output  # 상세 설명 안내
 
 
@@ -78,3 +84,132 @@ def test_version_option():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.output
+
+
+# ============================================================================ dockguard rules
+
+
+def test_rules_lists_registered_rules():
+    result = runner.invoke(app, ["rules"], env={"COLUMNS": "160"})
+    assert result.exit_code == 0, result.output
+    for n in range(1, 11):
+        assert f"DAEMON-{n:03d}" in result.output
+    assert "주의 (명시 필요)" in result.output  # icc는 RISKY
+    assert "CIS 2.2" in result.output
+
+
+def test_rules_category_filter():
+    result = runner.invoke(app, ["rules", "--category", "network"], env={"COLUMNS": "160"})
+    assert result.exit_code == 0
+    assert "DAEMON-001" not in result.output
+
+
+# ============================================================================ dockguard fix daemon
+
+
+@pytest.fixture
+def daemon_copy(tmp_path, daemon_fixture, monkeypatch):
+    """tmp에 복사한 daemon.json. dockerd 검증은 환경에 따라 달라지므로 비활성화한다."""
+    monkeypatch.setattr(rem.shutil, "which", lambda name: None)
+
+    def _copy(name: str = "insecure.json") -> Path:
+        target = tmp_path / "daemon.json"
+        shutil.copy(daemon_fixture(name), target)
+        return target
+
+    return _copy
+
+
+def _fix(*args: str, input: str | None = None):
+    return runner.invoke(app, ["fix", "daemon", *args], input=input, env={"COLUMNS": "160"})
+
+
+def _backups(path: Path) -> list[Path]:
+    return list(path.parent.glob("daemon.json.bak.*"))
+
+
+def test_fix_defaults_to_dry_run(daemon_copy):
+    path = daemon_copy()
+    before = path.read_bytes()
+    result = _fix("--daemon-config", str(path))
+    assert result.exit_code == 0, result.output
+    assert "미리보기" in result.output
+    assert '+  "live-restore": true,' in result.output
+    assert "dockguard fix daemon --apply" in result.output
+    assert path.read_bytes() == before
+    assert not _backups(path)
+
+
+def test_fix_dry_run_lists_manual_items(daemon_copy):
+    result = _fix("--daemon-config", str(daemon_copy()))
+    assert "수동 조치 필요" in result.output
+    assert "--rule DAEMON-001" in result.output
+
+
+def test_fix_apply_with_confirmation(daemon_copy):
+    path = daemon_copy()
+    result = _fix("--apply", "--daemon-config", str(path), input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "수정 완료" in result.output
+    assert "다음 단계" in result.output
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["live-restore"] is True and data["no-new-privileges"] is True
+    assert data["icc"] is True  # RISKY는 명시하지 않으면 건드리지 않는다
+    assert len(_backups(path)) == 1
+
+
+def test_fix_apply_declined_changes_nothing(daemon_copy):
+    path = daemon_copy()
+    before = path.read_bytes()
+    result = _fix("--apply", "--daemon-config", str(path), input="n\n")
+    assert result.exit_code == 1
+    assert "취소했습니다" in result.output
+    assert path.read_bytes() == before
+    assert not _backups(path)
+
+
+def test_fix_risky_rule_requires_second_confirmation(daemon_copy):
+    path = daemon_copy()
+    before = path.read_bytes()
+    result = _fix("--apply", "-r", "DAEMON-001", "--daemon-config", str(path), input="y\nn\n")
+    assert result.exit_code == 1
+    assert "부작용이 큰 수정" in result.output
+    assert path.read_bytes() == before
+
+
+def test_fix_risky_rule_applied_after_double_confirmation(daemon_copy):
+    path = daemon_copy()
+    result = _fix("--apply", "-r", "DAEMON-001", "--daemon-config", str(path), input="y\ny\n")
+    assert result.exit_code == 0, result.output
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["icc"] is False
+    assert data["live-restore"] is False  # 선택하지 않은 룰은 그대로
+
+
+def test_fix_unknown_rule_id(daemon_copy):
+    result = _fix("-r", "DAEMON-999", "--daemon-config", str(daemon_copy()))
+    assert result.exit_code == 2
+    assert "알 수 없는" in result.output
+
+
+def test_fix_refuses_broken_json(daemon_copy):
+    result = _fix("--daemon-config", str(daemon_copy("invalid.json")))
+    assert result.exit_code == 2
+    assert "수정할 수 없습니다" in result.output
+
+
+def test_fix_nothing_to_do(daemon_copy):
+    result = _fix("--apply", "--daemon-config", str(daemon_copy("secure.json")))
+    assert result.exit_code == 0
+    assert "자동으로 수정할 항목이 없습니다" in result.output
+
+
+def test_fix_selected_rule_already_ok(daemon_copy):
+    result = _fix("-r", "DAEMON-004", "--daemon-config", str(daemon_copy("secure.json")))
+    assert result.exit_code == 0
+    assert "이미 권장 상태" in result.output
+
+
+def test_fix_missing_explicit_path(tmp_path):
+    result = _fix("--daemon-config", str(tmp_path / "nope.json"))
+    assert result.exit_code == 2

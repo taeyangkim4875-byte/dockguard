@@ -72,6 +72,39 @@ class Status(Enum):
 _STATUS_ORDER: list[Status] = [Status.FAIL, Status.WARN, Status.SKIP, Status.PASS]
 
 
+class FixRisk(str, Enum):
+    """자동 수정의 위험도."""
+
+    NONE = "none"  # 자동 수정 미지원 (수정 방법만 안내)
+    SAFE = "safe"  # 부작용이 작아 기본 수정 대상
+    RISKY = "risky"  # 부작용이 커서 사용자가 룰 ID를 명시해야만 포함 (강경고)
+
+
+class ApplyMethod(str, Enum):
+    """daemon.json 변경을 Docker에 반영하는 방법."""
+
+    RELOAD = "reload"  # SIGHUP 리로드로 반영 (컨테이너 영향 없음)
+    RESTART = "restart"  # 데몬 재시작 필요
+
+
+@dataclass
+class ConfigPatch:
+    """룰이 제안하는 설정 파일 수정 계획.
+
+    룰은 '무엇을 바꿀지'만 선언하고, 실제 파일 쓰기·백업·검증은 Remediator가 전담한다.
+    그래서 어떤 룰도 백업/검증 절차를 우회할 수 없다.
+    """
+
+    rule_id: str
+    summary: str  # 사람이 읽는 변경 요약 (예: '"live-restore": true')
+    set_values: dict[str, Any] = field(default_factory=dict)  # 최상위 키 설정 (값 통째로 교체)
+    remove_keys: list[str] = field(default_factory=list)
+    apply_with: ApplyMethod = ApplyMethod.RESTART
+    risk: FixRisk = FixRisk.SAFE
+    note: str = ""  # 적용 시 주의사항 (RISKY면 강경고로 표시)
+    requires_recreate: bool = False  # 기존 컨테이너는 재생성해야 반영되는지
+
+
 @dataclass
 class Finding:
     """룰 하나가 대상 하나를 점검한 결과."""

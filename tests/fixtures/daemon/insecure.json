@@ -2,5 +2,10 @@
   "icc": true,
   "no-new-privileges": false,
   "live-restore": false,
-  "insecure-registries": ["10.0.0.5:5000"]
+  "userland-proxy": true,
+  "iptables": false,
+  "seccomp-profile": "unconfined",
+  "log-driver": "json-file",
+  "insecure-registries": ["10.0.0.5:5000", "localhost:5000"],
+  "registry-mirrors": ["http://mirror.internal"]
 }

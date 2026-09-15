@@ -1,7 +1,8 @@
 """DAEMON-002: no-new-privileges 기본 활성화."""
 
-from dockguard.core.models import Severity
+from dockguard.core.models import ApplyMethod, FixRisk, Severity
 from dockguard.core.rule import register
+from dockguard.knowledge.references import cis
 from dockguard.rules.daemon._base import BooleanDaemonRule
 
 
@@ -10,14 +11,16 @@ class NoNewPrivilegesRule(BooleanDaemonRule):
     id = "DAEMON-002"
     title = "no-new-privileges 기본 활성화"
     severity = Severity.HIGH
-    reference = (
-        "CIS Docker Benchmark 2.18 — Ensure that containers are restricted "
-        "from acquiring new privileges"
-    )
+    reference = cis("2.14", "Ensure containers are restricted from acquiring new privileges")
 
     key = "no-new-privileges"
     recommended_value = True
     docker_default = False
+
+    fix_risk = FixRisk.SAFE
+    apply_with = ApplyMethod.RESTART
+    fix_note = "새로 생성되는 컨테이너부터 적용됩니다. sudo/su로 root를 얻는 컨테이너가 있다면 동작이 실패할 수 있습니다."
+    fix_requires_recreate = True
 
     why = """\
 리눅스에서 setuid/setgid 비트가 설정된 실행 파일(`sudo`, `su`, `passwd`, `mount` 등)은 실행하는 순간 \

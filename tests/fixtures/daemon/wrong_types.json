@@ -1,5 +1,11 @@
 {
   "icc": "false",
   "no-new-privileges": 1,
-  "live-restore": "yes"
+  "live-restore": "yes",
+  "userland-proxy": "false",
+  "iptables": "true",
+  "userns-remap": true,
+  "seccomp-profile": 0,
+  "log-opts": "max-size=10m",
+  "insecure-registries": "10.0.0.5:5000"
 }

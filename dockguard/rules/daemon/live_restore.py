@@ -1,7 +1,8 @@
 """DAEMON-004: live-restore 활성화."""
 
-from dockguard.core.models import Severity
+from dockguard.core.models import ApplyMethod, FixRisk, Severity
 from dockguard.core.rule import register
+from dockguard.knowledge.references import cis
 from dockguard.rules.daemon._base import BooleanDaemonRule
 
 
@@ -10,11 +11,14 @@ class LiveRestoreRule(BooleanDaemonRule):
     id = "DAEMON-004"
     title = "live-restore 활성화"
     severity = Severity.LOW
-    reference = "CIS Docker Benchmark 2.14 — Ensure live restore is enabled"
+    reference = cis("2.15", "Ensure live restore is enabled")
 
     key = "live-restore"
     recommended_value = True
     docker_default = False
+
+    fix_risk = FixRisk.SAFE
+    apply_with = ApplyMethod.RELOAD  # SIGHUP 리로드만으로 반영 가능
 
     why = """\
 기본 설정에서는 Docker 데몬(`dockerd`)이 종료되면 그 위에서 돌던 **모든 컨테이너도 함께 중지**된다. \

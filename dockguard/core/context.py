@@ -12,6 +12,15 @@ from pathlib import Path
 from typing import Any
 
 
+@dataclass(frozen=True)
+class FileStat:
+    """POSIX 파일 소유권/권한 정보 (Windows에서는 수집하지 않는다)."""
+
+    mode: int  # 권한 비트만 (예: 0o644)
+    uid: int
+    gid: int
+
+
 @dataclass
 class DaemonConfig:
     """daemon.json 수집 결과.
@@ -25,11 +34,24 @@ class DaemonConfig:
     exists: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    raw_text: str = ""  # 원본 텍스트 (수정 diff의 기준)
+    stat: FileStat | None = None  # POSIX 소유권/권한 (Windows·파일 없음이면 None)
+    rootless: bool = False  # rootless 모드 설정 파일(~/.config/docker/daemon.json)인지
 
     @property
     def usable(self) -> bool:
         """룰이 판단에 사용할 수 있는 상태인지 (파일 없음은 기본값으로 판단 가능)."""
         return self.error is None
+
+    @property
+    def user_scoped(self) -> bool:
+        """시스템 파일이 아니라 사용자 소유가 정상인 설정 파일인지 (rootless, Docker Desktop)."""
+        if self.rootless:
+            return True
+        try:
+            return self.path.resolve().is_relative_to(Path.home().resolve())
+        except OSError:  # pragma: no cover
+            return False
 
     def has(self, key: str) -> bool:
         return key in self.data

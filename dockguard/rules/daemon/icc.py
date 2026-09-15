@@ -1,7 +1,8 @@
 """DAEMON-001: ICC(컨테이너 간 통신) 제한."""
 
-from dockguard.core.models import Severity
+from dockguard.core.models import ApplyMethod, FixRisk, Severity
 from dockguard.core.rule import register
+from dockguard.knowledge.references import cis
 from dockguard.rules.daemon._base import BooleanDaemonRule
 
 
@@ -10,14 +11,20 @@ class IccRule(BooleanDaemonRule):
     id = "DAEMON-001"
     title = "ICC(컨테이너 간 통신) 제한"
     severity = Severity.MEDIUM
-    reference = (
-        "CIS Docker Benchmark 2.1 — Ensure network traffic is restricted "
-        "between containers on the default bridge"
-    )
+    reference = cis("2.2", "Ensure network traffic is restricted between containers on the default bridge")
 
     key = "icc"
     recommended_value = False
     docker_default = True
+
+    # 부작용(서비스 간 통신 단절)이 커서 `--rule DAEMON-001`로 명시해야만 자동 수정한다
+    fix_risk = FixRisk.RISKY
+    apply_with = ApplyMethod.RESTART
+    fix_note = (
+        "기본 브리지(bridge)에서 서로 통신하던 컨테이너들의 연결이 데몬 재시작 즉시 끊깁니다. "
+        "백엔드↔메시지큐, 앱↔DB처럼 통신이 필요한 서비스를 먼저 같은 커스텀 네트워크로 옮겼는지 확인하세요. "
+        "(`docker network inspect bridge`로 기본 브리지에 붙은 컨테이너를 확인할 수 있습니다)"
+    )
 
     why = """\
 Docker의 기본 브리지 네트워크(`docker0`)에 연결된 컨테이너들은 기본값(`icc: true`)에서 서로의 \

@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TypeVar
 
 from dockguard.core.context import ScanContext
-from dockguard.core.models import Finding, Severity, Status
+from dockguard.core.models import ConfigPatch, Finding, FixRisk, Severity, Status
 
 _REGISTRY: list[type["Rule"]] = []
 
@@ -52,6 +52,9 @@ def all_rules() -> list["Rule"]:
     return [cls() for cls in registered_rule_classes()]
 
 
+DEFAULT_NO_AUTOFIX_REASON = "자동 수정을 지원하지 않는 항목입니다. `dockguard scan --explain`으로 수정 방법을 확인하세요."
+
+
 class Rule:
     """모든 점검 룰의 베이스 클래스."""
 
@@ -61,13 +64,20 @@ class Rule:
     severity: Severity = Severity.MEDIUM
     reference: str = ""  # 근거 (CIS 항목 등)
 
+    # 자동 수정 지원 수준과, 지원하지 않는다면 그 이유
+    fix_risk: FixRisk = FixRisk.NONE
+    no_autofix_reason: str = DEFAULT_NO_AUTOFIX_REASON
+
     def check(self, context: ScanContext) -> list[Finding]:
         """컨텍스트를 점검해 Finding 목록을 반환한다."""
         raise NotImplementedError
 
-    def remediate(self, finding: Finding, context: ScanContext, dry_run: bool = True):
-        """수정 로직 (선택 구현). 기본은 미지원."""
-        raise NotImplementedError(f"{self.id}는 자동 수정을 지원하지 않습니다.")
+    def plan_fix(self, finding: Finding, context: ScanContext) -> ConfigPatch | None:
+        """자동 수정 계획을 반환한다 (선택 구현). None이면 자동 수정 대상이 아니다.
+
+        룰은 파일을 직접 고치지 않는다. 백업 · dry-run · 검증 · 롤백은 Remediator가 담당한다.
+        """
+        return None
 
     def finding(
         self,
@@ -79,11 +89,13 @@ class Rule:
         why: str,
         how_to_fix: str,
         tradeoff: str = "",
-        auto_fixable: bool = False,
+        auto_fixable: bool | None = None,
         learn_more: str = "",
         severity: Severity | None = None,
     ) -> Finding:
         """이 룰의 id/제목/카테고리/심각도/근거를 채운 Finding을 만든다."""
+        if auto_fixable is None:
+            auto_fixable = self.fix_risk != FixRisk.NONE and status in (Status.FAIL, Status.WARN)
         return Finding(
             rule_id=self.id,
             title=self.title,

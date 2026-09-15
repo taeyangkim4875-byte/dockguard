@@ -3,6 +3,8 @@
   "no-new-privileges": true,
   "live-restore": true,
   "userland-proxy": false,
+  "userns-remap": "default",
+  "iptables": true,
   "log-driver": "json-file",
   "log-opts": {
     "max-size": "10m",
