@@ -37,6 +37,11 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
+# 폐쇄망 반입용 배포물 빌드 (scripts/build_offline.sh) — 설치본에는 필요 없다
+build = [
+    "pyinstaller>=6.0",
+    "shiv>=1.0",
+]
 
 [project.scripts]
 dockguard = "dockguard.cli:main"
