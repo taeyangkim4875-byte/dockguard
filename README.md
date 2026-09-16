@@ -312,6 +312,44 @@ pip install -e ".[dev]"
 pytest
 ```
 
+### 인터넷이 없는 서버 (폐쇄망 · 내부망)
+
+**저장소를 통째로 clone할 필요가 없습니다.** dockguard는 실행 중 외부로 어떤 통신도 하지 않으므로
+(읽는 것은 로컬 파일과 Docker 소켓뿐입니다), **파일 하나만 반입하면** 그대로 동작합니다.
+취약점 데이터베이스를 주기적으로 내려받아야 하는 도구들과 다른 점입니다.
+
+[릴리스 페이지](https://github.com/taeyangkim4875-byte/dockguard/releases)에서 셋 중 **하나만** 받으세요.
+
+| 파일 | 서버에 필요한 것 | 크기 | 설치 |
+|------|------------------|------|------|
+| `dockguard` | **없음** (Python 불필요) | ~14MB | `sudo install -m 755 dockguard /usr/local/bin/` |
+| `dockguard.pyz` | Python 3.10+ | ~2.5MB | `sudo install -m 755 dockguard.pyz /usr/local/bin/dockguard` |
+| `dockguard-wheelhouse.tar.gz` | Python 3.10+, pip | ~2.2MB | `tar xzf dockguard-wheelhouse.tar.gz` 후<br>`pip install --no-index --find-links=wheelhouse dockguard` |
+
+```bash
+sha256sum -c SHA256SUMS      # 반입 후 무결성 확인
+dockguard --version
+sudo dockguard scan -f /srv
+```
+
+단일 실행파일은 **glibc 2.28 기준**(manylinux_2_28)으로 빌드되어 RHEL/Rocky 8+, Ubuntu 20.04+,
+Debian 10+ 에서 동작합니다. 더 오래된 배포판에서는 `.pyz`나 휠 꾸러미를 쓰세요.
+
+**직접 빌드하려면** — 배포 대상과 같은 계열의 리눅스에서:
+
+```bash
+bash scripts/build_offline.sh              # 세 가지 전부 (dist/offline/)
+bash scripts/build_offline.sh binary       # 단일 실행파일만
+```
+
+> 빌드 스크립트는 만들어진 배포물로 **룰 26개가 전부 등록되는지, HTML 리포트 · 진단 · 학습이 실제로
+> 동작하는지** 확인한 뒤에야 성공으로 처리합니다. 단일 실행파일 패키징은 `@register`로만 등록되는 룰 모듈을
+> "아무도 import하지 않는 코드"로 보고 빼 버리기 쉬운데, 그러면 도구가 **조용히 0개를 점검**하게 됩니다.
+> 실제로 옵션 없이 빌드하면 그렇게 됩니다. 그 실패를 빌드 단계에서 잡습니다.
+
+**서버에 파일 반입 자체가 안 된다면**, 설치 없이 서버에서 상태만 떠 와 다른 PC에서 분석할 수 있습니다 →
+[스냅샷으로 오프라인 분석](#python을-설치할-수-없는-서버라면--스냅샷으로-오프라인-분석)
+
 ---
 
 ## 서버에서 실행하기
@@ -1006,7 +1044,12 @@ docs/
 ├── decisions.md               # 설계 결정 기록 (배경 → 선택지 → 결정 → 근거)
 ├── sample-report.html         # HTML 리포트 샘플
 └── images/                    # README 스크린샷 (scripts/make_screenshots.py로 생성)
-.github/workflows/ci.yml       # pytest 매트릭스 + 실제 Docker E2E
+.github/workflows/
+├── ci.yml                     # pytest 매트릭스 + 실제 Docker E2E
+└── release.yml                # 폐쇄망 배포물 빌드 · 검증 · 릴리스 업로드
+scripts/
+├── make_screenshots.py        # README 스크린샷 · 샘플 리포트 생성
+└── build_offline.sh           # 단일 실행파일 · .pyz · 휠 꾸러미 빌드 + 동작 검증
 ```
 
 ---
@@ -1096,6 +1139,7 @@ pip install -e ".[dev]"
 pytest                                        # 전체 테스트
 pytest --cov=dockguard --cov-report=term-missing
 python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 · 샘플 리포트 재생성
+bash scripts/build_offline.sh                 # 폐쇄망 반입용 배포물 (리눅스에서)
 ```
 
 **GitHub Actions CI**([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 모든 푸시와 PR에서 두 가지를 확인합니다.
@@ -1103,6 +1147,7 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 | 잡 | 내용 |
 |----|------|
 | `pytest` | Ubuntu × Python 3.10 · 3.11 · 3.12 · 3.13 + Windows. 커버리지 90% 미만이면 실패. 리눅스 전용 코드(POSIX 파일 권한 등)도 여기서 검증 |
+| `release` | 태그(`v*`)를 붙이면 manylinux 컨테이너에서 **폐쇄망 반입용 배포물**(단일 실행파일 · `.pyz` · 휠 꾸러미)을 만들고, 각 배포물로 룰 26개 등록 · HTML 리포트 · 진단 · 학습이 동작하는지 검증한 뒤 릴리스에 업로드 |
 | `e2e-docker` | **러너의 실제 Docker에서 정전 사고를 재현**(`examples/rabbitmq-incident/reproduce.sh`)하고, Docker SDK 경로와 docker CLI 폴백 경로 모두로 NET-001 · NET-004가 제대로 잡히는지, **`diagnose`가 근본 원인을 네트워크 격리로 지목하는지**, 복구 후에는 모두 통과하고 진단도 깨끗해지는지, `--fail-on`이 종료 코드 1을 내는지 검증. 생성한 HTML/JSON 리포트는 아티팩트로 업로드 |
 
 - **테스트 876개, 커버리지 98%** — 단위 테스트는 실제 Docker 없이 실행됩니다.

@@ -1,0 +1,100 @@
+name: Release
+
+# 태그를 붙이면 폐쇄망(내부망)에 반입할 수 있는 배포물을 만들어 릴리스에 올린다.
+#
+#   git tag v0.1.0 && git push --tags
+#
+# 만드는 것:
+#   dockguard                      단일 실행파일 (Python 불필요)
+#   dockguard.pyz                  단일 zipapp (Python 3.10+ 만 있으면 됨)
+#   dockguard-wheelhouse.tar.gz    휠 꾸러미 (pip install --no-index)
+#   SHA256SUMS                     반입 후 무결성 확인용
+#
+# manylinux_2_28 컨테이너에서 빌드하는 이유: 실행파일은 빌드한 glibc 버전보다 낮은 서버에서
+# 동작하지 않는다. glibc 2.28 기준으로 만들면 RHEL/Rocky 8+, Ubuntu 20.04+, Debian 10+ 를 모두 덮는다.
+# (ubuntu-latest 러너에서 그냥 빌드하면 glibc 2.35라 Rocky 9 같은 서버에서 실행되지 않는다.)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 폐쇄망 배포물 빌드 (manylinux_2_28)
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PYTHON: /opt/python/cp312-cp312/bin/python
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 설치
+        run: $PYTHON -m pip install -e ".[dev]"
+
+      - name: 테스트 (태그 푸시는 CI 잡이 돌지 않으므로 여기서 한 번 더)
+        run: $PYTHON -m pytest -q
+
+      - name: 배포물 빌드 + 검증
+        # 빌드마다 룰 개수 · HTML 리포트 · 진단 · 학습이 실제로 동작하는지 대조한다.
+        # PyInstaller는 @register로만 등록되는 룰 모듈을 빼 버리기 쉽고, 그러면 도구가
+        # 조용히 0개를 점검하게 된다. 그 실패를 여기서 잡는다.
+        run: bash scripts/build_offline.sh
+
+      - name: 무결성 해시
+        working-directory: dist/offline
+        run: sha256sum dockguard dockguard.pyz dockguard-wheelhouse.tar.gz > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dockguard-offline
+          path: dist/offline/*
+          if-no-files-found: error
+
+  release:
+    name: 릴리스에 올리기
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: dockguard-offline
+          path: dist/offline
+
+      - name: 릴리스 생성
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## 폐쇄망 · 내부망 설치
+
+          인터넷이 없는 서버에는 아래 파일 중 **하나만** 반입하면 됩니다.
+
+          | 파일 | 서버에 필요한 것 | 설치 |
+          |------|------------------|------|
+          | `dockguard` | **없음** | `sudo install -m 755 dockguard /usr/local/bin/` |
+          | `dockguard.pyz` | Python 3.10+ | `sudo install -m 755 dockguard.pyz /usr/local/bin/dockguard` |
+          | `dockguard-wheelhouse.tar.gz` | Python 3.10+, pip | `tar xzf …` 후 `pip install --no-index --find-links=wheelhouse dockguard` |
+
+          반입 후 무결성 확인: `sha256sum -c SHA256SUMS`
+
+          ```bash
+          dockguard --version
+          sudo dockguard scan -f /srv
+          sudo dockguard diagnose connectivity backend rabbitmq --port 5672
+          ```
+
+          단일 실행파일은 glibc 2.28 기준(manylinux_2_28)으로 빌드되어 RHEL/Rocky 8+, Ubuntu 20.04+,
+          Debian 10+ 에서 동작합니다. 그보다 오래된 배포판에서는 `.pyz`나 휠 꾸러미를 쓰세요.
+
+          dockguard는 실행 중 외부로 어떤 통신도 하지 않습니다 (로컬 파일과 Docker 소켓만 읽습니다).
+          EOF
+          gh release create "$TAG" dist/offline/* \
+            --title "dockguard $TAG" \
+            --notes-file notes.md
