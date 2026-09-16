@@ -1,6 +1,7 @@
 # dockguard
 
-**Docker 호스트 통합 보안 진단 도구** — "무엇이 위험한지"뿐 아니라 **"고치면 무엇이 깨지는지"까지** 알려줍니다.
+**Docker 보안 취약점을 진단하고, 장애의 근본 원인을 추적하는 CLI 도구**
+— "무엇이 위험한지"뿐 아니라 **"고치면 무엇이 깨지는지"**, 그리고 **"왜 연결이 안 되는지"**까지 알려줍니다.
 
 [![CI](https://github.com/taeyangkim4875-byte/dockguard/actions/workflows/ci.yml/badge.svg)](https://github.com/taeyangkim4875-byte/dockguard/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%20~%203.13-blue)
@@ -8,29 +9,36 @@
 ![CIS](https://img.shields.io/badge/CIS%20Docker%20Benchmark-v1.6.0-orange)
 
 ```bash
-dockguard scan                      # 진단 — daemon.json · compose · 실행 중인 컨테이너 네트워크를 한 번에
+dockguard scan                      # 예방 — daemon.json · compose · 실행 중인 컨테이너 네트워크를 한 번에
 dockguard scan --explain            # 왜 위험한지 · 어떻게 고치는지 · 고치면 무엇이 깨지는지
+
+dockguard diagnose connectivity backend rabbitmq --port 5672
+                                    # 진단 — "왜 연결이 안 되지?"의 근본 원인을 단계별로 추적
+
 dockguard scan -o report.html       # 공유하기 좋은 HTML 리포트 (JSON도 가능)
 dockguard fix daemon --apply        # 안전한 항목만 백업 → 검증 → 적용 → 실패 시 자동 롤백
 dockguard learn icc                 # 보안 개념 학습 (11개 주제)
 ```
 
 dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테이너 네트워크 격리를 한 번에 점검하고,
-각 취약점마다 **왜 위험한지 / 어떻게 고치는지 / 고치면 어떤 부작용이 있는지**를 한글로 설명하는 CLI 도구입니다.
+각 취약점마다 **왜 위험한지 / 어떻게 고치는지 / 고치면 어떤 부작용이 있는지**를 한글로 설명합니다.
+그리고 이미 장애가 났다면, **증상에서 근본 원인까지 단계별로 추적**합니다.
 
 ![정전 후 서비스 의존성 진단 결과](docs/images/terminal-network.png)
 
 <p align="center"><sub>정전으로 재부팅된 서버 진단 — 백엔드와 RabbitMQ가 공유하는 네트워크가 없고, Redis는 재시작 정책이 없어 올라오지 않았다는 것을 한 번에 찾아냅니다.<br>
 <b><a href="docs/demo.md">▶ 이 시나리오를 처음부터 따라 해 보기 (docs/demo.md)</a></b></sub></p>
 
-**룰 26종**(daemon 10 · compose 12 · 네트워크/서비스 의존성 4) · 안전한 자동 수정 · 터미널 / HTML / JSON 리포트 · 보안 학습 11개 주제 ·
-테스트 834개 + 실제 Docker E2E(CI)
+**룰 26종**(daemon 10 · compose 12 · 네트워크/서비스 의존성 4) · **장애 원인 진단**(diagnose) · 안전한 자동 수정 ·
+터미널 / HTML / JSON 리포트 · 보안 학습 11개 주제 · 테스트 876개 + 실제 Docker E2E(CI)
 
 ---
 
 ## 목차
 
 - [왜 만들었나](#왜-만들었나)
+- [무엇을 하는 도구인가](#무엇을-하는-도구인가)
+- [diagnose — 며칠 걸린 디버깅을 1초에](#diagnose--며칠-걸린-디버깅을-1초에)
 - [dockguard의 장점](#dockguard의-장점)
 - [설치](#설치)
 - [서버에서 실행하기](#서버에서-실행하기)
@@ -41,7 +49,7 @@ dockguard는 Docker 데몬 설정(`daemon.json`), docker-compose 파일, 컨테�
 - [보안 점수](#보안-점수)
 - [아키텍처](#아키텍처)
 - [새 룰 추가하기](#새-룰-추가하기)
-- [설계 결정 기록](#설계-결정-기록)
+- [설계 결정](#설계-결정)
 - [개발과 테스트](#개발과-테스트)
 - [현재 한계](#현재-한계)
 - [로드맵](#로드맵)
@@ -84,6 +92,149 @@ dockguard는 모든 권고에 이 **부작용(tradeoff)**을 붙이고, 서비�
 | 호스트 외부 IP로 컨테이너끼리 접속하면 불안정하다 | DAEMON-001/003 부작용에 서비스 이름 접속 권고 |
 | RabbitMQ 포트가 0.0.0.0에 열려 guest로 접속당했다 | NET-004 민감 포트 외부 노출 점검, DAEMON-009의 UFW 우회 경고 |
 
+그리고 한 가지를 더 배웠습니다. **원인을 찾아가는 과정 자체가 매번 비슷하다**는 것입니다.
+계정 → 비밀번호 → 접속 주소 → 포트 → 방화벽 → 데몬 설정 → 네트워크. 저는 이 순서를 며칠에 걸쳐 손으로 밟았습니다.
+그런데 이건 사람이 기억해서 해야 할 일이 아니라, **도구가 1초에 대신 밟을 수 있는 일**이었습니다.
+
+그래서 dockguard는 두 방향에서 같은 문제를 다룹니다.
+
+- **`scan`** — 장애가 나기 전에 위험한 설정을 찾고, 고치면 무엇이 깨지는지 알려 준다 (예방)
+- **`diagnose`** — 이미 장애가 났을 때, 증상에서 근본 원인까지 단계별로 좁혀 간다 (진단)
+
+---
+
+## 무엇을 하는 도구인가
+
+| 명령 | 하는 일 | 언제 쓰나 |
+|------|---------|-----------|
+| **`dockguard scan`** | daemon.json · compose · 네트워크의 보안 취약점을 점검하고 **점수화**. 각 항목의 위험 이유 · 수정 방법 · **부작용**을 설명 | 정기 점검, 배포 전, CI |
+| **`dockguard diagnose`** | 증상(컨테이너 연결 실패)에서 **근본 원인을 단계별로 자동 추론**. 각 단계에서 실제로 확인한 값을 함께 보여줌 | **장애 한가운데**, 재부팅·재배포 직후 |
+| **`dockguard learn`** | 보안 개념을 개념 → 동작 원리 → 공격 시나리오 → 권장 방법 → 실제 사례 순으로 학습 (11개 주제) | 리포트를 이해하고 싶을 때 |
+| **`dockguard fix`** | daemon.json의 **안전한 항목만** 백업 → 검증 → 적용 → 실패 시 롤백. 기본은 미리보기 | 점검 결과를 실제로 반영할 때 |
+
+**1) 취약점 점검과 점수** — `dockguard scan` → **[맨 위 스크린샷](#dockguard)**
+
+공유 네트워크가 없는 조합, 재시작 정책이 없어 올라오지 않은 컨테이너, 0.0.0.0에 열린 메시지큐 포트를 한 번에 찾아냅니다.
+
+**2) 장애 원인 추적** — `dockguard diagnose connectivity backend rabbitmq --port 5672`
+
+![장애 원인 진단 — 네트워크 격리](docs/images/terminal-diagnose.png)
+
+<sub>다섯 단계를 순서대로 검사하고, 각 단계에서 확인한 실제 값과 함께 근본 원인 · 해결책 · 부작용을 보여줍니다. → [자세히](#diagnose--며칠-걸린-디버깅을-1초에)</sub>
+
+**3) 안전한 수정** — `dockguard fix daemon` (미리보기) → `--apply`
+
+![daemon.json 안전 수정 미리보기](docs/images/terminal-fix.png)
+
+**4) 공유용 HTML 리포트** — `dockguard scan -o report.html`
+
+![HTML 리포트](docs/images/report.png)
+
+<sub>샘플: [docs/sample-report.html](docs/sample-report.html) · 학습 기능은 [`dockguard learn`](#8-보안-개념-학습--dockguard-learn) 참고</sub>
+
+---
+
+## diagnose — 며칠 걸린 디버깅을 1초에
+
+`Connection refused`. 로그에 남는 건 이 한 줄뿐입니다.
+같은 서버, 맞는 포트, 맞는 계정인데 연결이 안 됩니다. 여기서부터 사람은 **의심 가는 것을 하나씩 지워 나갑니다.**
+
+`dockguard diagnose connectivity`는 그 과정을 의사결정 트리로 옮긴 것입니다.
+제가 실제로 밟았던 순서 그대로이고, 각 단계는 `docker inspect` 정보를 읽어 **자동으로 판정**합니다.
+
+```mermaid
+flowchart TD
+    S(["증상: backend → rabbitmq:5672 연결 안 됨"]) --> S1
+    S1{"1. 두 컨테이너가<br/>실행 중인가?"} -- 아니오 --> C1["컨테이너 미실행 · 이름 불일치<br/>docker start · restart 정책 추가"]
+    S1 -- 예 --> S2{"2. 대상이 그 포트를<br/>여는가?"}
+    S2 -- 아니오 --> C2["포트 미개방<br/>실제 리슨 포트 확인"]
+    S2 -- 예 --> S3{"3. 공유하는 네트워크가<br/>있는가?"}
+    S3 -- 아니오 --> C3["네트워크 격리<br/>network connect + compose 영구 반영"]
+    S3 -- 예 --> S4{"4. 그 네트워크에서<br/>통신이 허용되는가?"}
+    S4 -- 아니오 --> C4["icc: false로 차단<br/>커스텀 네트워크로 이동"]
+    S4 -- 예 --> S5{"5. 상대를 어떤 주소로<br/>찾고 있는가?"}
+    S5 -- "호스트 IP · localhost" --> C5["컨테이너 이름으로 변경"]
+    S5 -- 컨테이너 이름 --> OK(["네트워크 레벨 이상 없음<br/>방화벽 · 인증 · 앱 레벨 안내"])
+
+    style C3 fill:#fee,stroke:#c33,stroke-width:2px
+    style S3 fill:#ffe,stroke:#c93,stroke-width:2px
+```
+
+**3번이 핵심입니다.** 사람이 가장 늦게 의심하는 것이지만, 컨테이너 환경에서는 가장 흔한 원인입니다.
+저도 계정 · 비밀번호 · 주소 · 포트 · 방화벽을 다 확인한 뒤에야 여기에 도달했습니다.
+
+### 실제 출력
+
+저장소에 포함된 정전 사고 재현 스냅샷으로 Docker 없이도 바로 확인할 수 있습니다.
+
+```bash
+dockguard diagnose connectivity backend-container rabbitmq --port 5672   --docker-snapshot examples/rabbitmq-incident/snapshot.json   --daemon-config examples/rabbitmq-incident/daemon.json
+```
+
+```
+  검사 과정
+
+  [통과]  1. 두 컨테이너가 존재하고 실행 중인가?
+          → backend-container, rabbitmq 모두 실행 중
+          · backend-container → backend-container: running (image: myorg/backend:4.2.1, restart: always)
+          · rabbitmq → rabbitmq: running (image: rabbitmq:3.13.7-management, restart: unless-stopped)
+
+  [통과]  2. rabbitmq가 5672 포트를 여는가?
+          → 5672 포트를 여는 것으로 선언됨
+          · rabbitmq EXPOSE: 4369/tcp, 5671/tcp, 5672/tcp, 15671/tcp, 15672/tcp, ...
+
+  [실패]  3. 두 컨테이너가 공유하는 네트워크가 있는가?
+          → 공유 네트워크 없음 — backend-container: [bridge] / rabbitmq: [messaging_mq-net]
+          · backend-container 네트워크: bridge
+          · rabbitmq 네트워크: messaging_mq-net
+          · 공통: 없음
+
+  [생략]  4. 그 네트워크에서 컨테이너 간 통신이 허용되는가?
+          → 공유 네트워크가 없어 판정 불가 — 참고: 기본 bridge는 컨테이너 간 통신이 꺼져 있다(icc: false).
+            두 컨테이너를 기본 bridge에 함께 붙여도 통신은 되지 않으니 반드시 커스텀 네트워크를 쓰라.
+
+  [주의]  5. backend-container는 rabbitmq를 어떤 주소로 찾는가?
+          → RABBITMQ_HOST가 IP(203.0.113.50)로 고정됨 — 우회 접속은 될 수 있다 (컨테이너 이름 사용 권장)
+
+┏━ 근본 원인  두 컨테이너가 공유하는 네트워크가 있는가? ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  네트워크 격리 — 두 컨테이너가 공유하는 Docker 네트워크가 없어 서로에게 도달할 수 없다      ┃
+┃                                                                                             ┃
+┃  ■ 근거 (실제로 확인한 값)                                                                  ┃
+┃    backend-container 네트워크: bridge                                                       ┃
+┃    rabbitmq 네트워크: messaging_mq-net                                                      ┃
+┃    공통: 없음                                                                               ┃
+┃                                                                                             ┃
+┃  ■ 해결                                                                                     ┃
+┃  지금 바로 복구하려면 (임시)                                                                ┃
+┃    docker network connect messaging_mq-net backend-container                                ┃
+┃                                                                                             ┃
+┃  재기동 후에도 유지되게 하려면 — compose에 영구 반영한다.                                   ┃
+┃    services:                                                                                ┃
+┃      backend-container:                                                                     ┃
+┃        networks: [mq-net]                                                                   ┃
+┃      rabbitmq:                                                                              ┃
+┃        networks: [mq-net]                                                                   ┃
+┃                                                                                             ┃
+┃  ■ 주의사항 / 부작용                                                                        ┃
+┃   • 임시 연결은 재기동 시 풀린다. compose에 반영하지 않으면 다음 정전 때 같은 장애가 반복된다 ┃
+┃   • 같은 네트워크의 컨테이너끼리는 모든 포트로 통신할 수 있다 → 목적별 네트워크로 나눠라     ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+### 이 출력이 신경 쓴 것
+
+| | 왜 |
+|---|---|
+| **통과한 단계도 전부 보여준다** | "무엇이 문제가 아닌지"를 아는 것도 디버깅입니다. 포트가 열려 있음을 확인하면 그 방향은 더 안 봐도 됩니다 |
+| **각 단계에 실제로 확인한 값을 남긴다** | 도구의 판단을 그대로 믿지 않고 눈으로 검증할 수 있어야 합니다. 틀렸을 때 틀렸다는 걸 알 수 있어야 신뢰할 수 있습니다 |
+| **원인이 하나가 아닐 수 있다** | 첫 실패를 **근본 원인**으로, 뒤따르는 실패를 **"추가로 발견된 문제 — 이것도 고쳐야 연결됩니다"**로 구분합니다. 실제 사고도 네트워크 격리 + 잘못된 접속 주소, 둘이었습니다 |
+| **잘못된 복구를 막는다** | 공유 네트워크가 없을 때 4단계는 "기본 bridge는 icc:false라 거기 붙여도 안 된다"고 미리 경고합니다 |
+| **원인을 못 찾아도 결과다** | 모든 단계를 통과하면 "네트워크 레벨에는 원인이 없다"고 말하고, 다음으로 확인할 것(앱 리슨 여부 · 인증 실패 · `DOCKER-USER` 체인)을 안내합니다 |
+| **고치지는 않는다** | 진단은 진단만 합니다. 해결책은 **제안**으로 출력하고, 적용 시점은 운영자가 정합니다 |
+
+종료 코드는 `0`(네트워크 레벨 원인 없음) · `1`(근본 원인 발견) · `2`(진단 불가)라서 스크립트에서도 쓸 수 있습니다.
+전체 시나리오는 **[데모 문서](docs/demo.md)**에서 재현 스크립트와 함께 따라 할 수 있습니다.
+
 ---
 
 ## dockguard의 장점
@@ -92,6 +243,7 @@ dockguard는 모든 권고에 이 **부작용(tradeoff)**을 붙이고, 서비�
 서비스 간 의존성을 선언해 두면 실제 Docker 상태와 대조해, 통신이 안 되는 이유가 *공유 네트워크가 없어서*인지,
 *icc로 막혀서*인지, *재시작 정책이 없어 재부팅 후 안 올라와서*인지 구분합니다. 그리고 실제 컨테이너 · 네트워크 이름이 들어간
 복구 명령을 제시합니다. compose의 `depends_on`은 따로 선언하지 않아도 자동으로 검증합니다.
+이미 장애가 난 상황이라면 **`dockguard diagnose`**가 컨테이너 이름 두 개만으로 다섯 단계를 짚어 근본 원인을 지목합니다.
 
 **2. 고치면 무엇이 깨지는지 알려줍니다.**
 모든 권고에 부작용 설명이 붙어 있습니다. "icc를 끄면 기본 bridge의 통신이 끊긴다", "userns-remap을 켜면 기존 볼륨이 보이지 않는다"처럼
@@ -114,9 +266,12 @@ Docker 재시작은 직접 하지 않고, 컨테이너가 유지되는 올바른
 무료 오픈소스이고 설치 한 번이면 끝입니다. 에이전트나 별도 서버가 필요 없고, Python을 설치할 수 없는 서버는 스냅샷을 떠서
 다른 곳에서 분석할 수 있습니다. HTML 리포트 · JSON · CI 종료 코드(`--fail-on`)를 지원합니다.
 
-> dockguard를 만들기 전에 기존 도구들을 먼저 살펴봤습니다. 이미지 취약점(CVE) 스캔은 Trivy, Dockerfile 린트는 hadolint,
-> 더 넓은 CIS · IaC 규칙 점검은 docker-bench-security나 KICS처럼 이미 훌륭한 도구가 있습니다. dockguard는 그 도구들이 중심에 두지 않는
-> **서비스 간 통신 검증**과 **설정 변경의 부작용 설명**에 집중했습니다. 함께 쓰는 것을 권장합니다.
+> **기존 도구와의 관계** — dockguard를 만들기 전에 이미 있는 도구들을 먼저 살펴봤습니다. 이미지 취약점(CVE) 스캔은 Trivy,
+> Dockerfile 린트는 hadolint, 더 넓은 CIS · IaC 규칙 점검은 docker-bench-security나 KICS처럼 훌륭한 도구가 있고,
+> 그 영역에서는 이들이 훨씬 낫습니다. dockguard는 그 도구들이 중심에 두지 않는 세 가지에 집중했습니다 —
+> **서비스 간 통신 검증**, **설정 변경의 부작용 설명**, 그리고 **장애 원인 진단(diagnose)**.
+> 앞의 도구들이 "이 이미지 · 이 파일이 안전한가"를 본다면, dockguard는 "지금 이 호스트에서 서비스가 서로 닿는가"를 봅니다.
+> 겹치지 않으니 함께 쓰는 것을 권장합니다.
 
 ---
 
@@ -451,11 +606,29 @@ docker network connect messaging_mq-net backend-container
 dockguard scan -c network --docker-snapshot snapshot.json --deps config/dependencies.yaml
 ```
 
-> ⚠️ **스냅샷에는 컨테이너 환경변수(비밀번호가 들어 있을 수 있음)가 포함됩니다.** dockguard는 환경변수를 쓰지 않으므로,
+> ⚠️ **스냅샷에는 컨테이너 환경변수(비밀번호가 들어 있을 수 있음)가 포함됩니다.** 스캔은 환경변수를 쓰지 않고,
+> 진단(`diagnose`)은 접속 주소로 보이는 키만 읽고 자격증명은 가려서 출력합니다. 그래도 파일 자체에는 값이 남으므로,
 > `jq`가 있다면 첫 줄을 `docker inspect $(docker ps -aq) | jq 'map(del(.Config.Env))'`로 바꿔 제거한 뒤 옮기세요.
+> (환경변수를 지우면 진단의 5단계 '접속 주소 확인'은 건너뜁니다.)
 > 어느 쪽이든 스냅샷은 민감 정보로 다루고 분석 후 삭제하세요.
 
-### 6. 리포트로 저장하기 — HTML · JSON
+### 6. 장애 원인 추적 — 이미 연결이 끊겼다면
+
+`scan`이 "장애가 나기 전"이라면, `diagnose`는 **"이미 장애가 난 뒤"**입니다.
+선언 파일 없이 **컨테이너 이름 두 개만으로** 동작하므로, 장애 한가운데서 처음 설치해도 바로 쓸 수 있습니다.
+
+```bash
+sudo dockguard diagnose connectivity backend rabbitmq --port 5672
+```
+
+- 컨테이너 이름 대신 **compose 서비스 이름**을 써도 됩니다 (스케일된 서비스는 실행 중인 컨테이너를 골라 진단).
+- `--port`를 생략하면 포트 확인만 건너뛰고 나머지는 그대로 검사합니다.
+- Docker에 연결할 수 없으면 크래시 대신 이유를 안내하고, `--docker-snapshot`으로 오프라인 분석을 제안합니다.
+- 종료 코드: `0` 네트워크 레벨 원인 없음 · `1` 근본 원인 발견 · `2` 진단 불가
+
+다섯 단계가 무엇을 보는지와 실제 출력은 **[diagnose — 며칠 걸린 디버깅을 1초에](#diagnose--며칠-걸린-디버깅을-1초에)**에 있습니다.
+
+### 7. 리포트로 저장하기 — HTML · JSON
 
 ```bash
 dockguard scan -o report.html          # 한 파일로 완결되는 HTML (외부 CSS·폰트·스크립트 없음 → 메일 첨부·오프라인 열람 가능)
@@ -493,7 +666,7 @@ dockguard scan -o scan.txt --explain   # 색상 없는 텍스트 리포트
 - run: dockguard scan -c compose -f . --fail-on high -o dockguard.json
 ```
 
-### 7. 보안 개념 학습 — `dockguard learn`
+### 8. 보안 개념 학습 — `dockguard learn`
 
 리포트의 짧은 설명과 별개로, 각 개념을 **개념 → 동작 원리 → 공격 시나리오 → 권장 방법 → 실제 사례** 순서로 깊이 있게 설명합니다.
 
@@ -520,7 +693,7 @@ dockguard learn ufw             # 별칭으로 (port-exposure)
 
 `--explain`과 HTML 리포트의 각 항목에도 관련 학습 주제(`dockguard learn <주제>`)가 표시됩니다.
 
-### 8. 조직에 맞게 조정하기 — 룰셋
+### 9. 조직에 맞게 조정하기 — 룰셋
 
 모든 권고가 모든 환경에 맞지는 않습니다. 당장 고칠 수 없는 항목은 **이유를 남기고** 끄거나 심각도를 조정합니다.
 끈 룰은 모든 리포트 상단에 표시되어, 예외가 조용히 숨지 않습니다.
@@ -539,7 +712,7 @@ dockguard scan --ruleset ./my-ruleset.yaml
 
 없는 룰 ID나 잘못된 심각도는 오타일 가능성이 높아, 무시하지 않고 **오류로 멈춥니다** (끄려던 룰이 켜진 채 점수가 나오면 안 되기 때문).
 
-### 9. 룰 목록 보기
+### 10. 룰 목록 보기
 
 ```bash
 dockguard rules
@@ -563,6 +736,20 @@ dockguard rules
 | `--format [terminal\|json\|html]` | 출력 형식 명시. `json`을 `-o` 없이 쓰면 표준 출력으로, `html`을 `-o` 없이 쓰면 `dockguard-<호스트>-<시각>.html` |
 | `--fail-on [critical\|high\|medium\|low]` | 이 심각도 이상 취약 항목이 있으면 종료 코드 1 (메시지는 stderr) |
 | `--ruleset PATH` | 룰 끄기 · 심각도 조정 파일. 기본: `./ruleset.yaml`, `./config/ruleset.yaml`, `/etc/dockguard/ruleset.yaml` 자동 탐색 |
+
+### `dockguard diagnose connectivity <A> <B>`
+
+컨테이너 A가 컨테이너 B에 연결되지 않는 원인을 다섯 단계로 추적합니다. 진단만 하고 설정은 바꾸지 않습니다.
+
+| 인자 · 옵션 | 설명 |
+|------|------|
+| `A` `B` | 컨테이너 이름 · ID, 또는 compose 서비스 이름 (스케일된 서비스는 실행 중인 컨테이너 기준) |
+| `-p`, `--port PORT` | 접속 포트. 지정하면 대상이 그 포트를 여는지도 확인 (생략하면 그 단계만 건너뜀) |
+| `--daemon-config PATH` | `daemon.json` 경로 (icc 확인용). 기본: 자동 탐색 |
+| `--docker-snapshot PATH` | Docker 대신 스냅샷 JSON으로 진단 (오프라인 분석) |
+| `--format [terminal\|json]` | 출력 형식. `json`은 검사 로그 · 근본 원인 · 해결책을 구조화해 표준 출력으로 |
+
+종료 코드: `0` 네트워크 레벨 원인 없음 · `1` **근본 원인 발견** · `2` 진단 불가(Docker 연결 실패, 잘못된 입력)
 
 ### `dockguard fix daemon`
 
@@ -748,7 +935,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    CLI["CLI<br/>scan · fix · rules"] --> COL["Collector<br/>daemon.json · compose · network"]
+    CLI["CLI<br/>scan · diagnose · fix · learn"] --> COL["Collector<br/>daemon.json · compose · network"]
     COL --> CTX[("ScanContext")]
     REG[["rules/**<br/>@register 자동 등록"]] --> ENG
     CTX --> ENG["Engine<br/>Rule.check() × N<br/>예외 격리"]
@@ -757,7 +944,14 @@ flowchart LR
     FND --> REP["Reporter<br/>터미널 · HTML · JSON"]
     SC --> REP
     FND -.->|"fix"| REM["Remediator<br/>백업 · 검증 · 롤백"]
+    CTX --> DIA["Diagnosis<br/>steps() 제너레이터<br/>단계별 판정"]
+    DIA --> DR["DiagnosisStep 로그<br/>+ 근본 원인"]
+    DR --> REP
 ```
+
+**scan과 diagnose는 수집(Collector)과 컨텍스트를 공유하고, 그 뒤로 갈라집니다.** scan은 룰을 돌려 `Finding`(취약점)을 모으고,
+diagnose는 진단 트리를 밟아 `DiagnosisStep`(검사 로그)을 쌓습니다. 목적이 다른 두 결과를 한 모델에 억지로 담지 않았습니다
+([왜 분리했는지](docs/decisions.md#1-진단diagnose과-예방scan을-분리했다)).
 
 - **Collector**는 수집 실패를 예외로 터뜨리지 않고 `ScanContext`에 사유를 기록합니다. "권한이 없어서 못 읽었다"도 사용자에게 유용한 진단 결과이기 때문입니다.
 - **룰은 `ScanContext`만 봅니다.** Docker나 파일 시스템에 직접 접근하지 않으므로, 실제 Docker 없이 가짜 컨텍스트로 모든 룰을 테스트할 수 있습니다.
@@ -783,12 +977,17 @@ dockguard/
 │   ├── daemon/                # DAEMON-001 ~ 010 (+ _base.py 공통 베이스)
 │   ├── compose/               # COMPOSE-001 ~ 012 (+ _base.py: 서비스 순회, 포트/볼륨/이미지 파서)
 │   └── network/               # NET-001 ~ 004 (의존성 통신 검증, 고아 컨테이너, 기본 bridge, 민감 포트)
+├── diagnostics/               # 원인 진단 (diagnose)
+│   ├── models.py              # DiagnosisStep · DiagnosisResult (검사 로그 · 근본 원인)
+│   ├── base.py                # Diagnosis 베이스 (steps() 제너레이터) · DockerDiagnosis
+│   └── connectivity.py        # 컨테이너 연결 실패 진단 트리 5단계
 ├── remediators/
 │   └── daemon_remediator.py   # 계획 · diff · 백업 · 검증 · 롤백 · 다음 단계 안내
 ├── reporters/
 │   ├── terminal.py            # rich 리포트 (점수 게이지, --explain), learn 화면
 │   ├── html.py                # 한 파일로 완결되는 HTML 리포트 (Markdown → HTML, 원문 HTML 차단)
 │   ├── json_reporter.py       # CI/CD 연동용 JSON (schema_version)
+│   ├── diagnosis.py           # 진단 리포트 (검사 로그 → 근본 원인 → 추가 문제)
 │   └── remediation.py         # fix / rules 화면
 ├── templates/
 │   └── report.html.j2         # HTML 리포트 템플릿 (인라인 CSS/JS, 라이트·다크·인쇄)
@@ -803,7 +1002,8 @@ config/
 examples/
 └── rabbitmq-incident/         # 정전 사고 재현 (스냅샷 · 의존성 · daemon.json · compose · reproduce.sh)
 docs/
-├── demo.md                    # 데모 시나리오: 정전 후 의존성 검증
+├── demo.md                    # 데모 시나리오: 정전 후 의존성 검증 · 원인 진단
+├── decisions.md               # 설계 결정 기록 (배경 → 선택지 → 결정 → 근거)
 ├── sample-report.html         # HTML 리포트 샘플
 └── images/                    # README 스크린샷 (scripts/make_screenshots.py로 생성)
 .github/workflows/ci.yml       # pytest 매트릭스 + 실제 Docker E2E
@@ -867,32 +1067,25 @@ class HealthcheckRule(ComposeRule):
 
 `tests/test_daemon_rules.py`의 공통 테스트가 **새 룰의 설명 필드(why · how_to_fix · tradeoff · 근거)가 충분히 채워졌는지**까지 검사합니다.
 
+**새 진단(diagnose)을 추가할 때도 같습니다.** `Diagnosis`를 상속해 `steps()` 제너레이터에서 검사 단계를 순서대로 `yield`하면, 검사 로그 수집 · 근본 원인 판정 · 출력은 베이스와 리포터가 처리합니다. 각 단계는 판정(PASS/FAIL/WARN/SKIP)과 함께 **실제로 확인한 값**을 `evidence`에 남기고, FAIL이면 원인 · 해결책 · 부작용을 담습니다.
+
 ---
 
-## 설계 결정 기록
+## 설계 결정
 
-| 결정 | 이유 |
-|------|------|
-| `daemon.json`이 없으면 Docker 기본값으로 판정 | 파일이 없는 호스트가 가장 흔하고, 그 상태의 기본값 대부분이 취약합니다. "파일 없음 = 통과"는 거짓 안심을 줍니다. |
-| 룰은 `ConfigPatch`만 선언, 파일 I/O는 Remediator 전담 | 룰이 늘어나도 백업 · 검증 · 롤백을 우회하는 경로가 생기지 않습니다. 계획이 순수 데이터라 테스트도 쉽습니다. |
-| 임시 파일 검증 → 백업 → `os.replace` | 검증에 실패하면 원본을 전혀 건드리지 않은 상태로 끝나고, 교체는 원자적이라 중간에 끊겨도 파일이 반쯤 쓰인 상태가 되지 않습니다. |
-| Docker를 직접 재시작하지 않음 | 재시작은 모든 컨테이너에 영향을 줄 수 있습니다. 시점 판단은 운영자 몫이고, 도구는 올바른 순서를 안내합니다. |
-| CIS 근거를 v1.6.0 번호로 통일 | CIS 벤치마크는 버전마다 항목 번호가 바뀝니다(icc: 이전 버전의 2.1 → v1.6.0의 2.2). 교육용 도구의 근거는 검증 가능해야 합니다. |
-| 잘못된 타입은 FAIL이 아닌 WARN | `"icc": "false"`는 취약하다기보다 **dockerd가 시작되지 않을 수 있는** 설정 오류입니다. 성격이 달라 따로 표시합니다. |
-| 설명 텍스트를 Markdown으로 작성 | 터미널(rich)과 HTML 리포트(Phase 5)에서 같은 원문을 렌더링하고, 코드 블록을 복사하기 쉽게 보여줄 수 있습니다. |
-| compose 결과는 "파일 × 룰" 단위로 묶음 | 서비스 10개에 `read_only`가 없다고 감점이 10번 되면 점수가 의미를 잃습니다. 룰 단위로 한 번 감점하고 영향받는 서비스는 목록으로 보여줍니다. |
-| host 네트워크 · 특권 포트는 '취약'이 아닌 '주의' | 성능 · 멀티캐스트 · 웹 표준 포트처럼 정당한 사용처가 많습니다. 금지가 아니라 검토를 요청하는 것이 실무에 맞습니다. |
-| override 병합은 `docker compose` 규칙을 따름 | 자동 탐색에서는 override를 병합하고, `-f`로 파일을 지정하면 병합하지 않습니다. 실제 배포 동작과 판정이 어긋나지 않게 하기 위해서입니다. |
-| 시크릿 값은 절대 출력하지 않음 | 보안 점검 리포트가 새로운 유출 경로가 되면 안 됩니다. 변수 이름만 보여주고, 테스트로 값이 출력되지 않음을 검증합니다. |
-| 네트워크 룰은 설정 파일보다 **실행 중인 상태**를 우선 | 설정 파일에 적힌 것과 실제로 떠 있는 것은 다를 수 있습니다(수동 `docker run`, 임시 `network connect`). 장애는 실제 상태에서 일어납니다. icc도 Docker가 bridge에 기록한 값을 먼저 봅니다. |
-| SDK · CLI · 스냅샷이 같은 `docker inspect` JSON을 공유 | 수집 경로가 셋이어도 파서는 하나라 동작이 일관되고, 테스트는 가짜 inspect JSON만 넣으면 됩니다. |
-| Docker에 연결 못 하면 룰마다 '건너뜀'을 남김 | 조용히 결과를 빼면 "네트워크는 문제없음"으로 오해합니다. 점검하지 못했다는 사실 자체를 표에 드러냅니다. |
-| compose `depends_on`을 의존성으로 자동 추론 | 선언 파일을 쓰지 않아도 기본 검증이 되게 합니다. 단, 이 호스트에서 실행 중인 프로젝트만 대상으로 해 다른 서버용 compose 파일로 오탐하지 않습니다. |
-| NET-004는 Docker가 없으면 compose 파일로 대체 판정 | 민감 포트 노출은 가장 흔한 사고 경로라, 실제 상태를 볼 수 없을 때도 확인할 수 있는 만큼은 확인합니다. |
-| HTML 리포트는 외부 리소스 없이 한 파일로 | 서버에서 만든 리포트를 메일로 보내거나 인터넷이 없는 곳에서 열어도 똑같이 보여야 합니다. 웹 폰트 대신 시스템 폰트를 씁니다. |
-| 리포트의 Markdown은 원문 HTML을 허용하지 않음 | `dependencies.yaml`의 이유 문구처럼 사용자 입력이 섞입니다. 공유되는 리포트가 스크립트 실행(XSS) 경로가 되지 않도록 테스트로 검증합니다. |
-| JSON을 stdout으로 낼 때 나머지 출력은 stderr로 | `dockguard scan --format json \| jq`가 항상 동작하도록, 진행 표시 · 안내 · `--fail-on` 경고가 JSON에 섞이지 않게 합니다. |
-| 설명 텍스트 품질을 테스트로 검사 | 룰과 학습 주제의 설명이 130개가 넘습니다. `**강조(괄호)**에` 같은 한국어 Markdown 함정을 사람이 찾기는 어려워, 전부 렌더링해 보고 남은 `**`를 잡아냅니다. |
+이 도구에서 가장 많이 고민한 것은 룰의 개수가 아니라 **어디까지 자동으로 할 것인가**였습니다.
+결정마다 배경 · 고민한 선택지 · 근거를 **[docs/decisions.md](docs/decisions.md)**에 정리했습니다.
+
+| 결정 | 한 줄 요약 |
+|------|------------|
+| [진단(diagnose)과 예방(scan)을 분리했다](docs/decisions.md#1-진단diagnose과-예방scan을-분리했다) | 입력(호스트 vs 증상)도 출력(점수 목록 vs 근본 원인)도 다릅니다. 한 명령에 담으면 둘 다 어정쩡해집니다 |
+| [자동 수정을 기본으로 하지 않았다](docs/decisions.md#2-자동-수정을-기본으로-하지-않았다) | 제가 겪은 사고의 절반은 **올바른 명령을 영향 범위를 모른 채 실행한 것**이 원인이었습니다 |
+| [모든 권고에 부작용(tradeoff)을 붙였다](docs/decisions.md#3-모든-권고에-부작용tradeoff을-붙였다) | 운영자에게 필요한 건 권고가 아니라 **권고 바로 옆의 다음 문장**입니다 |
+| [룰을 플러그인 구조로 만들었다](docs/decisions.md#4-룰을-플러그인-구조로-만들었다) | 중앙 목록에 등록을 빠뜨려 **조용히 점검되지 않는 것**이 가장 나쁜 실패입니다 |
+| [진단은 첫 실패에서 멈추지 않는다](docs/decisions.md#5-진단은-첫-실패에서-멈추지-않고-검사-로그를-끝까지-남긴다) | 장애 복구의 비용은 **왕복 횟수**입니다. 실제 사고도 원인이 둘이었습니다 |
+
+판정 기준 · 수집 · 출력에 대한 나머지 결정들(파일이 없으면 기본값으로 판정, 잘못된 타입은 WARN,
+시크릿 값은 절대 출력하지 않음 등)도 같은 문서의 [그 밖의 결정들](docs/decisions.md#그-밖의-결정들)에 있습니다.
 
 ---
 
@@ -910,9 +1103,9 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 | 잡 | 내용 |
 |----|------|
 | `pytest` | Ubuntu × Python 3.10 · 3.11 · 3.12 · 3.13 + Windows. 커버리지 90% 미만이면 실패. 리눅스 전용 코드(POSIX 파일 권한 등)도 여기서 검증 |
-| `e2e-docker` | **러너의 실제 Docker에서 정전 사고를 재현**(`examples/rabbitmq-incident/reproduce.sh`)하고, Docker SDK 경로와 docker CLI 폴백 경로 모두로 NET-001 · NET-004가 제대로 잡히는지, 복구 후에는 모두 통과하는지, `--fail-on`이 종료 코드 1을 내는지 검증. 생성한 HTML/JSON 리포트는 아티팩트로 업로드 |
+| `e2e-docker` | **러너의 실제 Docker에서 정전 사고를 재현**(`examples/rabbitmq-incident/reproduce.sh`)하고, Docker SDK 경로와 docker CLI 폴백 경로 모두로 NET-001 · NET-004가 제대로 잡히는지, **`diagnose`가 근본 원인을 네트워크 격리로 지목하는지**, 복구 후에는 모두 통과하고 진단도 깨끗해지는지, `--fail-on`이 종료 코드 1을 내는지 검증. 생성한 HTML/JSON 리포트는 아티팩트로 업로드 |
 
-- **테스트 834개, 커버리지 98%** — 단위 테스트는 실제 Docker 없이 실행됩니다.
+- **테스트 876개, 커버리지 98%** — 단위 테스트는 실제 Docker 없이 실행됩니다.
 - 각 룰마다 **통과 · 취약 · 파일 없음(기본값) · 파싱 실패 · 잘못된 타입** 케이스를 공통 테스트로 검사하고, 룰별 경계 조건을 따로 검사합니다.
 - compose 룰은 안전 · 취약 fixture 전체에 대한 공통 테스트와, 오탐 방지 로직(변수 참조, 이스케이프, 레지스트리 포트, 멀티 스테이지 Dockerfile 등)에 대한 경계 테스트를 갖추고 있습니다.
 - Remediator는 **백업 내용이 원본과 같은지, 검증 실패 시 원본과 디렉터리가 그대로인지, 적용 후 검증 실패 시 롤백되는지**를 테스트합니다.
@@ -924,6 +1117,7 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 | `tests/test_compose_rules.py` | COMPOSE-001 ~ 012 판정 로직, 파서, 시크릿 비노출, 수정 예시 |
 | `tests/test_compose_loader.py` | compose 탐색 우선순위 · 깊이 제한 · override 병합 · YAML 오류 위치 |
 | `tests/test_network_rules.py` | NET-001 ~ 004 판정 (공유 네트워크, icc 차단, 멈춘 컨테이너, host/container 모드, 스케일 서비스, 정전 시나리오) |
+| `tests/test_connectivity_diagnosis.py` | **진단 트리 5단계** — 각 단계가 FAIL하는 상황, 전부 통과(원인 미발견), 원인이 둘일 때의 구분, 시크릿 비노출, 출력, CLI 종료 코드 |
 | `tests/test_docker_runtime.py` | SDK · CLI · 스냅샷 수집 경로와 폴백, inspect 파서, Docker 오류 안내 분류 |
 | `tests/test_dependencies.py` | 의존성 파일 검증 오류 메시지, depends_on 추론, 선언 우선 중복 제거 |
 | `tests/test_reports.py` | JSON 스키마 · stdout 순수성, HTML 자기완결성 · **XSS 이스케이프**, 텍스트 리포트, `--fail-on` |
@@ -935,7 +1129,8 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 | `tests/test_cli.py` | scan · rules · fix 명령 통합 테스트 |
 | `tests/test_scoring.py` | 감점 · 하한 · 등급 경계값 |
 | `tests/test_ruleset.py` | 룰셋 형식 검증 · 룰 비활성화 · 심각도 조정의 점수 반영 · 리포트 표시 |
-| `tests/e2e/check_incident.py` | CI의 실제 Docker E2E 결과 검증 스크립트 |
+| `tests/e2e/check_incident.py` | CI의 실제 Docker E2E — scan 결과 검증 스크립트 |
+| `tests/e2e/check_diagnosis.py` | CI의 실제 Docker E2E — diagnose 결과 검증 스크립트 (사고 상태 / 복구 후) |
 | `tests/fixtures/daemon/` | 안전 · 취약 · 빈 객체 · 깨진 JSON · 잘못된 타입 예시 |
 | `tests/fixtures/compose/` | 안전 · 취약(제작 배경 사고의 RabbitMQ 구성 재현) · 깨진 YAML 예시 |
 | `examples/rabbitmq-incident/` | 정전 사고 재현 — 스냅샷(단위 테스트 · 오프라인 데모), `reproduce.sh`(실제 Docker 데모 · CI E2E) |
@@ -949,7 +1144,9 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 정직하게 적어 둡니다.
 
 - **daemon 룰은 주로 `daemon.json`을 봅니다.** `dockerd` 명령행 플래그나 systemd drop-in으로 준 설정은, Docker에 연결된 경우 userns-remap · rootless(`docker info`)와 icc(기본 bridge 옵션)만 실제 상태로 교차 확인합니다. 나머지 항목은 아직 설정 파일 기준입니다.
-- **NET-001은 네트워크 경로까지만 확인합니다.** 대상이 실제로 포트를 리스닝하는지, 비밀번호가 맞는지, `DOCKER-USER` 체인이 막고 있지 않은지는 알 수 없습니다. 통과 후에도 연결이 안 되면 애플리케이션 로그의 인증 오류를 확인하세요.
+- **NET-001과 `diagnose`는 네트워크 경로까지만 확인합니다.** 대상이 실제로 포트를 리스닝하는지, 비밀번호가 맞는지, `DOCKER-USER` 체인이 막고 있지 않은지는 알 수 없습니다. 진단은 컨테이너 안에서 실제로 접속을 시도하지 않고 `docker inspect` 정보로 판정하며, 원인을 찾지 못하면 그 사실과 함께 다음에 확인할 명령을 안내합니다.
+- **`diagnose`의 포트 확인은 이미지의 `EXPOSE` 선언과 공개 포트에 기반합니다.** 애플리케이션은 선언 없이도 포트를 들을 수 있으므로, 선언이 없으면 단정하지 않고 '확인 불가'로 표시합니다.
+- **`diagnose`의 접속 주소 확인은 컨테이너 환경변수만 봅니다.** 설정 파일이나 코드에 하드코딩된 주소는 찾지 못합니다. 비밀번호 계열 키는 읽지 않고, URL에 섞인 자격증명은 가려서 출력합니다.
 - 네트워크 점검은 **로컬 Docker 호스트 하나**를 봅니다. Swarm 오버레이 네트워크나 여러 호스트에 걸친 의존성은 다루지 않습니다.
 - **Windows에서는 파일 권한(DAEMON-007)을 점검하지 않습니다.** POSIX 권한 개념이 없기 때문입니다.
 - `dockerd --validate`는 Docker 23.0 이상에서만 동작합니다. 그보다 오래된 버전이나 dockerd가 없는 환경에서는 JSON 문법 검증만 하고, 그 사실을 결과에 표시합니다.
@@ -968,6 +1165,7 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 - [x] **Phase 4** — 네트워크 격리 + **서비스 의존성 통신 검증** (`--deps`, depends_on 추론), Docker SDK/CLI/스냅샷 수집
 - [x] **Phase 5** — HTML · JSON 리포트, `--fail-on`, `dockguard learn` 보안 학습 기능 (11개 주제)
 - [x] **Phase 6** — GitHub Actions CI(실제 Docker E2E 포함), 룰셋, 데모 시나리오, 스크린샷
+- [x] **Phase 7** — **원인 진단(`dockguard diagnose connectivity`)** — 증상에서 근본 원인까지 5단계 추적, 검사 로그 · 근거 · 해결책 · 부작용 출력
 
 **앞으로 해 볼 것**
 
@@ -975,4 +1173,5 @@ python scripts/make_screenshots.py --font D2Coding.ttf   # README 스크린샷 �
 - `dockerd` 실행 옵션 · systemd drop-in까지 읽어 daemon 룰의 실제 적용 상태 교차 확인 확대
 - compose `extends:` · `include:` 지원
 - 연결 문자열(`postgres://user:pass@...`) 안의 비밀번호 탐지
-- NET-001에서 대상 포트가 실제로 리스닝 중인지 확인 (컨테이너 네트워크 네임스페이스에서 연결 시도)
+- NET-001과 `diagnose`에서 대상 포트가 실제로 리스닝 중인지 확인 (컨테이너 네트워크 네임스페이스에서 연결 시도)
+- 진단 추가: 컨테이너가 계속 재시작되는 이유, 볼륨 데이터가 사라진 경로 추적

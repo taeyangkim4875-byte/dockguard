@@ -4,6 +4,7 @@
 
 생성물:
     docs/images/terminal-network.png   네트워크 · 의존성 진단 결과 (터미널)
+    docs/images/terminal-diagnose.png  장애 원인 진단 (diagnose connectivity)
     docs/images/terminal-explain.png   NET-001 상세 설명 (--explain)
     docs/images/terminal-fix.png       daemon.json 안전 수정 미리보기 (fix daemon)
     docs/images/report.png             HTML 리포트 첫 화면
@@ -22,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from rich.console import Console
 from rich.terminal_theme import MONOKAI
@@ -35,6 +36,8 @@ from dockguard.core.context import DaemonConfig  # noqa: E402
 from dockguard.core.engine import ScanEngine  # noqa: E402
 from dockguard.core.models import Status  # noqa: E402
 from dockguard.core.scoring import calculate_score  # noqa: E402
+from dockguard.diagnostics.connectivity import ConnectivityDiagnosis  # noqa: E402
+from dockguard.reporters.diagnosis import render_diagnosis  # noqa: E402
 from dockguard.remediators.daemon_remediator import build_plan  # noqa: E402
 from dockguard.reporters.html import render_html  # noqa: E402
 from dockguard.reporters.remediation import render_dry_run_footer, render_plan  # noqa: E402
@@ -128,6 +131,17 @@ def network_scan() -> Console:
     return console
 
 
+def diagnose_connectivity() -> Console:
+    """정전 사고 스냅샷으로 backend → rabbitmq 연결 실패를 진단한 화면."""
+    context = _incident_context({"network"})
+    if context.daemon is not None:  # 실제 서버 경로처럼 보이도록 (예시 파일의 로컬 경로를 감춘다)
+        context.daemon.path = PurePosixPath("/etc/docker/daemon.json")  # type: ignore[assignment]
+    result = ConnectivityDiagnosis("backend-container", "rabbitmq", 5672).run(context)
+    console = _console()
+    render_diagnosis(console, context, result)
+    return console
+
+
 def explain_net001() -> Console:
     context = _incident_context({"network"})
     result = ScanEngine(categories={"network"}).run(context)
@@ -152,6 +166,10 @@ def fix_preview() -> Console:
 
 TERMINAL_SHOTS = {
     "terminal-network.png": (network_scan, "dockguard scan -c network --deps dependencies.yaml"),
+    "terminal-diagnose.png": (
+        diagnose_connectivity,
+        "dockguard diagnose connectivity backend-container rabbitmq --port 5672",
+    ),
     "terminal-explain.png": (explain_net001, "dockguard scan -c network --deps dependencies.yaml --explain"),
     "terminal-fix.png": (fix_preview, "dockguard fix daemon"),
 }
