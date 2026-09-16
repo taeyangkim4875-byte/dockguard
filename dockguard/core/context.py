@@ -142,6 +142,9 @@ class ContainerInfo:
     ports: list[PublishedPort] = field(default_factory=list)
     exposed_ports: list[str] = field(default_factory=list)  # 예: "5672/tcp"
     labels: dict[str, str] = field(default_factory=dict)
+    # 환경변수 (Config.Env). 진단에서 "이 컨테이너가 상대를 어떤 주소로 찾는가"를 확인하는 데 쓴다.
+    # 값에 비밀번호가 들어 있을 수 있으므로 리포트에 통째로 싣지 않는다 (필요한 키만, 자격증명은 가린다).
+    env: dict[str, str] = field(default_factory=dict)
 
     @property
     def running(self) -> bool:

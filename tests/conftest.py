@@ -91,6 +91,7 @@ def make_container() -> Callable[..., ContainerInfo]:
         ports: list[tuple[str, int, int]] | None = None,
         exposed: list[str] | None = None,
         labels: dict[str, str] | None = None,
+        env: dict[str, str] | None = None,
     ) -> ContainerInfo:
         return ContainerInfo(
             id=f"{name}-{'0' * 60}"[:64],
@@ -102,6 +103,7 @@ def make_container() -> Callable[..., ContainerInfo]:
             ports=[PublishedPort(container_port=c, protocol="tcp", host_ip=ip, host_port=h) for ip, h, c in ports or []],
             exposed_ports=exposed or [],
             labels=labels or {},
+            env=env or {},
         )
 
     return _make

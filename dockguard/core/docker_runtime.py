@@ -95,6 +95,12 @@ def parse_container(data: dict[str, Any]) -> ContainerInfo:
                 )
             )
 
+    env: dict[str, str] = {}
+    for entry in config.get("Env") or []:
+        key, sep, value = str(entry).partition("=")
+        if sep:
+            env[key] = value
+
     return ContainerInfo(
         id=str(data.get("Id", "")),
         name=str(data.get("Name", "")).lstrip("/"),
@@ -106,6 +112,7 @@ def parse_container(data: dict[str, Any]) -> ContainerInfo:
         ports=ports,
         exposed_ports=list((config.get("ExposedPorts") or {}).keys()),
         labels={str(k): str(v) for k, v in (config.get("Labels") or {}).items()},
+        env=env,
     )
 
 

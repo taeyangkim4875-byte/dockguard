@@ -37,8 +37,9 @@ docker create --name messaging-redis-1 --network "${NETWORK}" \
   $(compose_labels redis) "${IMAGE}" sleep 3600 >/dev/null
 
 echo "▶ backend-container — 장애 복구 중 compose 밖에서 docker run으로 다시 띄움 (기본 bridge에만 연결)"
-docker run -d --name backend-container --restart always -p 127.0.0.1:8080:8080 "${IMAGE}" sleep 3600 >/dev/null
+docker run -d --name backend-container --restart always -p 127.0.0.1:8080:8080 \n  -e RABBITMQ_HOST=203.0.113.50 -e RABBITMQ_PORT=5672 -e RABBITMQ_USER=app \n  "${IMAGE}" sleep 3600 >/dev/null
 
 echo
 echo "재현 완료. 이제 진단해 보세요:"
 echo "  dockguard scan -c network --deps examples/rabbitmq-incident/dependencies.yaml --explain"
+echo "  dockguard diagnose connectivity backend-container rabbitmq --port 5672"

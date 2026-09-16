@@ -72,12 +72,31 @@ jobs:
           echo "종료 코드: $code"
           test "$code" -eq 1
 
+      - name: 원인 진단 (diagnose) — 근본 원인이 네트워크 격리인지
+        run: |
+          set +e
+          dockguard diagnose connectivity backend-container rabbitmq --port 5672 --format json > diagnosis.json
+          code=$?
+          set -e
+          echo "종료 코드: $code (원인 발견 시 1)"
+          test "$code" -eq 1
+          python tests/e2e/check_diagnosis.py diagnosis.json --expect isolated
+          dockguard diagnose connectivity backend-container rabbitmq --port 5672 || true
+
+      - name: 원인 진단 — 없는 컨테이너도 크래시하지 않아야 함
+        run: |
+          set +e
+          dockguard diagnose connectivity backend-container nope --port 5672
+          test "$?" -eq 1
+
       - name: 복구 후 재진단 — 모든 의존성 통과
         run: |
           docker network connect messaging_mq-net backend-container
           docker start messaging-redis-1
           dockguard scan -c network --deps "$DEPS" -o recovered.json
           python tests/e2e/check_incident.py recovered.json --expect recovered
+          dockguard diagnose connectivity backend-container rabbitmq --port 5672 --format json > recovered-diagnosis.json
+          python tests/e2e/check_diagnosis.py recovered-diagnosis.json --expect connected
 
       - name: daemon 점검 · 수정 미리보기 (러너의 실제 /etc/docker/daemon.json)
         run: |

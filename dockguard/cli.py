@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import sys
 from enum import Enum
@@ -31,7 +32,9 @@ from dockguard.reporters.remediation import (
     render_plan,
     render_rule_list,
 )
+from dockguard.reporters.diagnosis import render_diagnosis
 from dockguard.reporters.terminal import TerminalReporter, render_topic, render_topic_list
+from dockguard.diagnostics.connectivity import ConnectivityDiagnosis
 
 
 class OutputFormat(str, Enum):
@@ -305,6 +308,78 @@ def list_rules(
     """등록된 모든 점검 룰과 심각도, 자동 수정 지원 여부를 보여줍니다."""
     categories = {c.value for c in category} if category else None
     render_rule_list(Console(), ScanEngine(categories=categories).rules)
+
+
+diagnose_app = typer.Typer(
+    help=(
+        "이미 발생한 증상의 근본 원인을 추적합니다. scan이 '무엇이 위험한가'를 미리 찾는다면, "
+        "diagnose는 '왜 안 되는가'를 단계별로 좁혀 나갑니다."
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(diagnose_app, name="diagnose")
+
+
+@diagnose_app.command("connectivity")
+def diagnose_connectivity(
+    source: Annotated[str, typer.Argument(help="연결을 시도하는 컨테이너 (이름 또는 compose 서비스 이름)")],
+    target: Annotated[str, typer.Argument(help="연결 대상 컨테이너 (이름 또는 compose 서비스 이름)")],
+    port: Annotated[
+        Optional[int],
+        typer.Option("--port", "-p", help="접속 포트 (예: 5672). 지정하면 대상이 그 포트를 여는지도 확인합니다."),
+    ] = None,
+    daemon_config: Annotated[
+        Optional[Path],
+        typer.Option("--daemon-config", help="daemon.json 경로 (icc 설정 확인용). 기본: 표준 위치 자동 탐색", dir_okay=False),
+    ] = None,
+    docker_snapshot: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--docker-snapshot",
+            help="Docker에 직접 연결하는 대신 서버에서 떠 온 스냅샷 JSON으로 진단합니다 (오프라인 분석).",
+            dir_okay=False,
+        ),
+    ] = None,
+    output_format: Annotated[
+        Optional[OutputFormat],
+        typer.Option("--format", help="출력 형식 (terminal / json). 기본: terminal", case_sensitive=False),
+    ] = None,
+) -> None:
+    """컨테이너 A가 컨테이너 B에 연결되지 않는 원인을 단계별로 추적합니다.
+
+    실행 여부 → 포트 → 공유 네트워크 → icc → 접속 주소 순으로 좁혀 가며, 각 단계에서 실제로 확인한 값을
+    함께 보여줍니다. 진단만 하고 설정을 바꾸지는 않습니다 (해결책은 제안으로 출력).
+
+    종료 코드: 0 = 네트워크 레벨 원인 없음, 1 = 근본 원인 발견, 2 = 진단 불가
+    """
+    as_json = output_format == OutputFormat.JSON
+    console = Console(stderr=as_json)
+    for label, path in (("daemon.json", daemon_config), ("스냅샷 파일", docker_snapshot)):
+        if path is not None and not path.is_file():
+            console.print(f"[bold red]오류:[/] 지정한 {label}을(를) 찾을 수 없습니다: {path}")
+            raise typer.Exit(code=2)
+    if output_format == OutputFormat.HTML:
+        console.print("[bold red]오류:[/] diagnose는 HTML 출력을 지원하지 않습니다 (terminal 또는 json).")
+        raise typer.Exit(code=2)
+
+    diagnosis = ConnectivityDiagnosis(source, target, port)
+    with console.status("[bold blue]Docker 상태를 수집하고 원인을 추적하는 중...[/]", spinner="dots"):
+        context = collect(
+            categories={Category.NETWORK.value},
+            daemon_config_path=daemon_config,
+            docker_snapshot=docker_snapshot,
+        )
+        result = diagnosis.run(context)
+
+    if as_json:
+        sys.stdout.write(json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        sys.stdout.flush()
+    else:
+        render_diagnosis(console, context, result)
+
+    if result.error is not None:
+        raise typer.Exit(code=2)
+    raise typer.Exit(code=1 if result.resolved else 0)
 
 
 fix_app = typer.Typer(
