@@ -1038,7 +1038,10 @@ config/
 ├── dependencies.example.yaml  # 서비스 의존성 선언 예시
 └── ruleset.example.yaml       # 룰셋 예시
 examples/
-└── rabbitmq-incident/         # 정전 사고 재현 (스냅샷 · 의존성 · daemon.json · compose · reproduce.sh)
+└── rabbitmq-incident/         # 정전 사고 전체 재현 (스냅샷 · 의존성 · daemon.json · compose · reproduce.sh)
+demo/
+├── setup_demo.sh              # 시연용 최소 재현 — 두 컨테이너를 다른 네트워크에 배치
+└── cleanup_demo.sh            # 데모 정리 (demo- 접두사 리소스만)
 docs/
 ├── demo.md                    # 데모 시나리오: 정전 후 의존성 검증 · 원인 진단
 ├── decisions.md               # 설계 결정 기록 (배경 → 선택지 → 결정 → 근거)
@@ -1148,6 +1151,7 @@ bash scripts/build_offline.sh                 # 폐쇄망 반입용 배포물 (�
 |----|------|
 | `pytest` | Ubuntu × Python 3.10 · 3.11 · 3.12 · 3.13 + Windows. 커버리지 90% 미만이면 실패. 리눅스 전용 코드(POSIX 파일 권한 등)도 여기서 검증 |
 | `release` | 태그(`v*`)를 붙이면 manylinux 컨테이너에서 **폐쇄망 반입용 배포물**(단일 실행파일 · `.pyz` · 휠 꾸러미)을 만들고, 각 배포물로 룰 26개 등록 · HTML 리포트 · 진단 · 학습이 동작하는지 검증한 뒤 릴리스에 업로드 |
+| `demo-scripts` | **데모 대본이 실제로 동작하는지** 검증 — `demo/setup_demo.sh`로 장애를 만들고, 진단이 ① 네트워크 격리를 근본 원인으로 지목하는지 ② 네트워크 연결 후 접속 주소 문제가 근본 원인으로 올라오는지 ③ 둘 다 고치면 원인 없음으로 바뀌는지, 그리고 정리 스크립트가 흔적을 남기지 않는지 |
 | `e2e-docker` | **러너의 실제 Docker에서 정전 사고를 재현**(`examples/rabbitmq-incident/reproduce.sh`)하고, Docker SDK 경로와 docker CLI 폴백 경로 모두로 NET-001 · NET-004가 제대로 잡히는지, **`diagnose`가 근본 원인을 네트워크 격리로 지목하는지**, 복구 후에는 모두 통과하고 진단도 깨끗해지는지, `--fail-on`이 종료 코드 1을 내는지 검증. 생성한 HTML/JSON 리포트는 아티팩트로 업로드 |
 
 - **테스트 876개, 커버리지 98%** — 단위 테스트는 실제 Docker 없이 실행됩니다.

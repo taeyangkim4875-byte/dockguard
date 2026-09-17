@@ -32,6 +32,57 @@ jobs:
       - name: 테스트 (커버리지 90% 미만이면 실패)
         run: python -m pytest --cov=dockguard --cov-report=term-missing --cov-fail-under=90
 
+  demo-scripts:
+    name: 데모 스크립트 검증 (docs/demo.md 시나리오 2)
+    runs-on: ubuntu-latest
+    env:
+      COLUMNS: "140"
+      DIAGNOSE: dockguard diagnose connectivity demo-backend demo-rabbitmq --port 5672 --format json
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 설치
+        run: python -m pip install ".[docker]"
+
+      - name: 재현 — demo/setup_demo.sh
+        run: bash demo/setup_demo.sh
+
+      - name: 진단 1 — 근본 원인은 네트워크 격리
+        run: |
+          set +e
+          $DIAGNOSE > demo-1.json
+          test "$?" -eq 1 || { echo "원인을 찾으면 종료 코드 1이어야 한다"; exit 1; }
+          set -e
+          python tests/e2e/check_diagnosis.py demo-1.json --expect isolated --networks demo-net-app,demo-net-mq
+
+      - name: 진단 2 — 네트워크 연결 후, 접속 주소 문제가 근본 원인으로 올라오는지
+        run: |
+          docker network connect demo-net-mq demo-backend
+          set +e
+          $DIAGNOSE > demo-2.json
+          set -e
+          python tests/e2e/check_diagnosis.py demo-2.json --expect address
+
+      - name: 진단 3 — 주소까지 고치면 네트워크 레벨 원인 없음
+        run: |
+          docker rm -f demo-backend
+          docker run -d --name demo-backend --network demo-net-mq --restart unless-stopped \
+            -e RABBITMQ_HOST=demo-rabbitmq -e RABBITMQ_PORT=5672 alpine:3.20 sleep 3600
+          $DIAGNOSE > demo-3.json
+          python tests/e2e/check_diagnosis.py demo-3.json --expect connected
+
+      - name: 터미널 출력 (로그 확인용)
+        run: dockguard diagnose connectivity demo-backend demo-rabbitmq --port 5672 || true
+
+      - name: 정리 — demo/cleanup_demo.sh
+        if: always()
+        run: |
+          bash demo/cleanup_demo.sh
+          test -z "$(docker ps -aq --filter name=demo-)" || { echo "데모 컨테이너가 남았다"; exit 1; }
+
   e2e-docker:
     name: 실제 Docker로 정전 사고 재현 (E2E)
     runs-on: ubuntu-latest
